@@ -1,0 +1,33 @@
+# xmake
+[Bb]uild/
+.xmake/
+vsxmake*/
+compile_commands.json
+
+# 外部依赖（!update.ps1 -Extern 克隆的 DKUtil）
+extern/
+
+# 编译产物
+*.dll
+*.exe
+*.pdb
+*.obj
+*.lib
+*.exp
+*.ilk
+*.pch
+*.res
+*.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+.cache/
+*.user
+
+# 打包与系统文件
+*.zip
+*.7z
+Thumbs.db
+Desktop.ini

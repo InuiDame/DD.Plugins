@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DDPluginAuthor: ${{ vars.DDPluginAuthor || github.repository_owner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Checkout DKUtil
+        uses: actions/checkout@v7
+        with:
+          repository: gottyduke/DKUtil
+          path: extern/DKUtil
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          package-cache: true
+          package-cache-key: ${{ hashFiles('xmake/plugin.lua') }}
+
+      - name: Configure
+        run: xmake f -p windows -a x64 -m releasedbg -y
+
+      - name: Build
+        run: xmake -v
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: DD.Plugins-${{ github.sha }}
+          path: |
+            build/windows/x64/releasedbg/*.dll
+            build/windows/x64/releasedbg/*.pdb
+            !build/windows/x64/releasedbg/compile.*.pdb
+          if-no-files-found: error
+          retention-days: 30
