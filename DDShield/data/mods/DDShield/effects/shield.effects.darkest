@@ -1,0 +1,56 @@
+// DDShield - shield effect triggers
+//
+// Every effect here is intentionally empty for the base game: the shield logic
+// lives in DDShield.dll, which matches these effect names against
+// DDShield.effects.json.  Reference them from any hero/monster skill:
+//
+//   combat_skill: .id "my_skill" ... .effect "shield_self_gain_10" "dmg 1" ...
+//
+// Use the *_self_* variants to shield the user, the plain ones to shield the
+// skill's target.
+
+// --- self shield gain ------------------------------------------------------
+effect: .name "shield_self_gain_5"  .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_gain_10" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_gain_15" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_gain_20" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_gain_25" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+// --- shield the target -----------------------------------------------------
+effect: .name "shield_gain_5"  .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_gain_10" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_gain_15" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_gain_20" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+// --- shield healing --------------------------------------------------------
+effect: .name "shield_heal_5"      .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_heal_10"     .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_heal_20"     .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_heal_pct_25" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+// --- shield damage (bypasses the shield-vs-hit absorption) -----------------
+effect: .name "shield_damage_5"      .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_damage_10"     .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_damage_pct_25" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+// --- self shield capacity / over time -------------------------------------
+effect: .name "shield_self_max_10"    .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_max_25"    .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_full"      .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_break"     .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_regen_2_3" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_self_decay_2_3" .target "performer" .chance 100% .on_hit true .on_miss true .has_description false
+
+// --- shield capacity -------------------------------------------------------
+effect: .name "shield_max_10"     .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_max_25"     .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_max_pct_50" .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+// --- shield state ----------------------------------------------------------
+effect: .name "shield_full"   .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_break"  .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_set_10" .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+// --- shield pierce: this hit partly ignores the target's shield (0-100%) ----
+effect: .name "shield_pierce_25" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_pierce_50" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+effect: .name "shield_pierce_100" .target "target" .chance 100% .on_hit true .on_miss false .has_description false
+// --- shield over time (duration is in combat rounds, handled by the DLL) ---
+effect: .name "shield_regen_2_3" .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_regen_5_2" .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_decay_2_3" .target "target" .chance 100% .on_hit true .on_miss true .has_description false
+effect: .name "shield_decay_5_2" .target "target" .chance 100% .on_hit true .on_miss true .has_description false

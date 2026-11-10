@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	<PreviewIconFile>preview_icon.png</PreviewIconFile>
+	<ItemDescriptionShort>Shield bars for Darkest Dungeon (requires DDShield.dll).</ItemDescriptionShort>
+	<ModDataPath>mods\DDShield</ModDataPath>
+	<Title>DD Shield</Title>
+	<Language>english</Language>
+	<UpdateDetails/>
+	<Visibility>private</Visibility>
+	<UploadMode>direct_upload</UploadMode>
+	<VersionMajor>1</VersionMajor>
+	<VersionMinor>0</VersionMinor>
+	<TargetBuild>0</TargetBuild>
+	<Tags>
+		<Tags>Gameplay</Tags>
+	</Tags>
+	<ItemDescription>Adds a shield resource with its own bar above the health bar. The shield logic is provided by DDShield.dll.</ItemDescription>
+</project>

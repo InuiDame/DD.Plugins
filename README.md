@@ -7,12 +7,18 @@
 | 目录 | target | 功能 | 文档 |
 | --- | --- | --- | --- |
 | `BuffIcon` | `buff_icon` | 为 buff 增加 `buff_icon` 字段，在状态栏显示独立的自定义图标 | [BuffIcon/README.md](BuffIcon/README.md) |
+| `DDShield` | `DDShield` | 独立于血条的护盾核心系统（GPLv3） | [DDShield/README.md](DDShield/README.md) |
+| `FmodCrashFix` | `FmodCrashFix` | 修复返回主菜单时 FMOD 异步线程空指针导致的闪退 | [FmodCrashFix/README.md](FmodCrashFix/README.md) |
+| `DarkestCrashFix` | `DarkestCrashFix` | 修复主程序的 4 类闪退（贡献者：局师傅） | [DarkestCrashFix/README.md](DarkestCrashFix/README.md) |
 
 ## 目录结构
 
 ```
 DD.Plugins/
 ├─ BuffIcon/           插件：自定义 buff 图标
+├─ DDShield/           插件：护盾核心系统
+├─ FmodCrashFix/       插件：修复返回主菜单时的 FMOD 闪退
+├─ DarkestCrashFix/    插件：修复主程序的 4 类闪退
 ├─ PluginTemplate/     新插件模板，由 !new.ps1 复制
 ├─ xmake/              公共构建规则 plugin.lua、Plugin.h 模板、版本资源
 ├─ xmake.lua           工程入口，自动包含各插件目录
@@ -78,4 +84,4 @@ xmake build MyPlugin
 
 ## 日志
 
-`<游戏根目录>\DDModLoader\<插件名>.log`，由模板 `PCH.h` 中的 `LOG_PATH` 决定。
+`<游戏根目录>\DDModLoader\log\<插件名>.log`，由模板 `PCH.h` 中的 `LOG_PATH` 决定。

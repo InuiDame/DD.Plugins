@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <language id="english">
+    <entry id="str_shield_name"><![CDATA[Shield]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[Shield %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[Shield Broken]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[Shielded]]></entry>
+  </language>
+  <language id="schinese">
+    <entry id="str_shield_name"><![CDATA[护盾]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[护盾 %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[护盾破碎]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[有护盾]]></entry>
+  </language>
+  <language id="french">
+    <entry id="str_shield_name"><![CDATA[Bouclier]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[Bouclier %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[Bouclier brisé]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[Bouclier]]></entry>
+  </language>
+  <language id="german">
+    <entry id="str_shield_name"><![CDATA[Schild]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[Schild %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[Schild zerbrochen]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[Schild]]></entry>
+  </language>
+  <language id="spanish">
+    <entry id="str_shield_name"><![CDATA[Escudo]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[Escudo %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[Escudo roto]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[Escudo]]></entry>
+  </language>
+  <language id="russian">
+    <entry id="str_shield_name"><![CDATA[Щит]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[Щит %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[Щит разрушен]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[Щит]]></entry>
+  </language>
+  <language id="japanese">
+    <entry id="str_shield_name"><![CDATA[シールド]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[シールド %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[シールド破壊]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[シールド]]></entry>
+  </language>
+  <language id="koreana">
+    <entry id="str_shield_name"><![CDATA[보호막]]></entry>
+    <entry id="str_shield_tooltip_format"><![CDATA[%s  %d / %d]]></entry>
+    <entry id="str_shield_gain"><![CDATA[보호막 %d]]></entry>
+    <entry id="str_shield_break"><![CDATA[보호막 파괴]]></entry>
+    <entry id="buff_rule_data_tooltip_shielded"><![CDATA[보호막]]></entry>
+  </language>
+</root>

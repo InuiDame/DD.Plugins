@@ -2,7 +2,9 @@
 
 为《暗黑地牢》的 buff 增加 `buff_icon` 字段，让 buff 在角色状态栏（tray）上显示独立的自定义图标。
 
-需要安装 [DDModLoader](https://github.com/InuiDame/Darkest-Dungeon-DLL-Mod-Loader)，把 `buff_icon.dll` 放进任意本地或创意工坊 mod 目录即可，不依赖其他前置。
+随 [DDModLoader](https://github.com/InuiDame/Darkest-Dungeon-DLL-Mod-Loader) 安装包预装在 `mods\DD Mod Lib\`，由加载器优先且强制加载，不依赖其他前置，也不会出现在 GUI 的启用列表里。
+
+其他目录里的同名 `buff_icon.dll` 不会被加载，前置目录的版本优先。只有前置版本加载失败时才会用到它们。
 
 ## 用法
 
@@ -58,7 +60,7 @@
 
 ## 排查问题
 
-查看 `<游戏根目录>\DDModLoader\buff_icon.log`：
+查看 `<游戏根目录>\DDModLoader\log\buff_icon.log`：
 
 | 日志 | 含义 |
 | --- | --- |
@@ -71,7 +73,7 @@
 
 ## 实现说明
 
-以下地址和偏移基于 `Darkest.exe` SHA1 `9db2d73b89aa034e2055df65a139403e18df641f`（19428352 字节）。
+以下地址和偏移基于 `Darkest.exe` SHA1 `9db2d73b89aa034e2055df65a139403e18df641f`（19428352 字节）。离线版 `_windowsnosteam\win64\Darkest.exe`（SHA1 `3f133c26312bb667f11105ddf41f92275398a8d3`，19267072 字节）的 RVA 不同，但同一组特征码和内存布局校验都能通过。
 
 游戏的 tray 有 28 种图标类型，只有类型 0（quirk）的数量由图标表 `Overlay+0x1B0` 决定。插件把自定义图标追加到这张表，每个图标占一个类型 0 的子槽位，并用路径哈希作为槽位标识。
 

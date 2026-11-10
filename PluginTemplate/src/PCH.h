@@ -112,6 +112,6 @@ using namespace std::literals;
 
 // DKUtil
 #define PLUGIN_MODE
-#define LOG_PATH "DDModLoader\\"
+#define LOG_PATH "DDModLoader\\log\\"
 #include "DKUtil/Hook.hpp"
 #include "DKUtil/Logger.hpp"

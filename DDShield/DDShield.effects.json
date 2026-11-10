@@ -1,0 +1,49 @@
+{
+  "_comment": "Shield effect table. Each key must match an effect name in shield.effects.darkest. op: add/addpct/max/maxpct/set/full/break/damage/regen/decay/pierce. duration is in combat rounds (regen/decay only).",
+
+  "effects": {
+    "shield_self_gain_5":   { "op": "add",    "value": 5  },
+    "shield_self_gain_10":  { "op": "add",    "value": 10 },
+    "shield_self_gain_15":  { "op": "add",    "value": 15 },
+    "shield_self_gain_20":  { "op": "add",    "value": 20 },
+    "shield_self_gain_25":  { "op": "add",    "value": 25 },
+
+    "shield_gain_5":        { "op": "add",    "value": 5  },
+    "shield_gain_10":       { "op": "add",    "value": 10 },
+    "shield_gain_15":       { "op": "add",    "value": 15 },
+    "shield_gain_20":       { "op": "add",    "value": 20 },
+
+    "shield_heal_5":        { "op": "add",    "value": 5  },
+    "shield_heal_10":       { "op": "add",    "value": 10 },
+    "shield_heal_20":       { "op": "add",    "value": 20 },
+    "shield_heal_pct_25":   { "op": "addpct", "value": 25 },
+
+    "shield_damage_5":      { "op": "damage", "value": 5  },
+    "shield_damage_10":     { "op": "damage", "value": 10 },
+    "shield_damage_pct_25": { "op": "damage", "value": 25 },
+
+    "shield_self_max_10":   { "op": "max",    "value": 10 },
+    "shield_self_max_25":   { "op": "max",    "value": 25 },
+    "shield_self_full":     { "op": "full"                 },
+    "shield_self_break":    { "op": "break"                },
+    "shield_self_regen_2_3":{ "op": "regen",  "value": 2, "duration": 3 },
+    "shield_self_decay_2_3":{ "op": "decay",  "value": 2, "duration": 3 },
+
+    "shield_max_10":        { "op": "max",    "value": 10 },
+    "shield_max_25":        { "op": "max",    "value": 25 },
+    "shield_max_pct_50":    { "op": "maxpct", "value": 50 },
+
+    "shield_full":          { "op": "full"                 },
+    "shield_break":         { "op": "break"                },
+    "shield_set_10":        { "op": "set",    "value": 10  },
+
+    "shield_pierce_25":     { "op": "pierce", "value": 25  },
+    "shield_pierce_50":     { "op": "pierce", "value": 50  },
+    "shield_pierce_100":    { "op": "pierce", "value": 100 },
+
+    "shield_regen_2_3":     { "op": "regen",  "value": 2, "duration": 3 },
+    "shield_regen_5_2":     { "op": "regen",  "value": 5, "duration": 2 },
+    "shield_decay_2_3":     { "op": "decay",  "value": 2, "duration": 3 },
+    "shield_decay_5_2":     { "op": "decay",  "value": 5, "duration": 2 }
+  }
+}

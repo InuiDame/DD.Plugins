@@ -22,7 +22,7 @@ BEGIN
 			VALUE "FileDescription", PLUGIN_NAME
 			VALUE "FileVersion", PLUGIN_VERSION_STRING
 			VALUE "InternalName", PLUGIN_NAME
-			VALUE "LegalCopyright", "MIT License"
+			VALUE "LegalCopyright", PLUGIN_LICENSE
 			VALUE "ProductName", PLUGIN_NAME
 			VALUE "ProductVersion", PLUGIN_VERSION_STRING
 		END
