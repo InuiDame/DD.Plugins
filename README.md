@@ -7,18 +7,22 @@
 | 目录 | target | 功能 | 文档 |
 | --- | --- | --- | --- |
 | `BuffIcon` | `buff_icon` | 为 buff 增加 `buff_icon` 字段，在状态栏显示独立的自定义图标 | [BuffIcon/README.md](BuffIcon/README.md) |
+| `CustomTypeEffects` | `custom_type_effects` | 为 buff / trinket 增加按自定义技能 `.type` 匹配的附加效果触发器（预制功能，部署到 `DD Mod Lib`） | [CustomTypeEffects/README.md](CustomTypeEffects/README.md) |
 | `DDShield` | `DDShield` | 独立于血条的护盾核心系统（GPLv3） | [DDShield/README.md](DDShield/README.md) |
 | `FmodCrashFix` | `FmodCrashFix` | 修复返回主菜单时 FMOD 异步线程空指针导致的闪退 | [FmodCrashFix/README.md](FmodCrashFix/README.md) |
 | `DarkestCrashFix` | `DarkestCrashFix` | 修复主程序的 4 类闪退（贡献者：局师傅） | [DarkestCrashFix/README.md](DarkestCrashFix/README.md) |
+| `ScrollWheel` | `scroll_wheel` | 给无原生滚轮的界面补滚轮（**v10：纯滚动 + 无外溢裁剪，不画任何 UI**；事件泵 cave + 独立 tick 线程 + 布局数据补丁 + 连续平滑滚动；`r8` 面板 gate + `param_5` 行号只裁滚出网格上沿的格子；自绘滚动条已移除，饰品库用原生条；v10 已实机验收通过；**v11.2**：修 ASLR 判据（cave 改用运行时 vtable）与补给预翻页（`gate_wheel_by_panel` 面板门控）；独立 `guild_scroll` 开关、默认关闭；20:15 实机验收补给门控 / v10 回归 / 工会滚轮全部通过，见 ScrollWheel/README.md §8.4 与 p31） | [ScrollWheel/README.md](ScrollWheel/README.md) |
 
 ## 目录结构
 
 ```
 DD.Plugins/
 ├─ BuffIcon/           插件：自定义 buff 图标
+├─ CustomTypeEffects/  插件：自定义技能 type 触发器（预制功能）
 ├─ DDShield/           插件：护盾核心系统
 ├─ FmodCrashFix/       插件：修复返回主菜单时的 FMOD 闪退
 ├─ DarkestCrashFix/    插件：修复主程序的 4 类闪退
+├─ ScrollWheel/        插件：给无原生滚轮的界面加鼠标滚轮（v11.2，补给/背包已验收 + 工会实验性 + 面板门控，不画 UI）
 ├─ PluginTemplate/     新插件模板，由 !new.ps1 复制
 ├─ xmake/              公共构建规则 plugin.lua、Plugin.h 模板、版本资源
 ├─ xmake.lua           工程入口，自动包含各插件目录

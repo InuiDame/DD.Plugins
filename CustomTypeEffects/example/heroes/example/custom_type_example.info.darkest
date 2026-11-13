@@ -1,0 +1,12 @@
+// 示例：把某个技能的 .type 改成自定义类型 "shadow_step"。
+// 实际使用时请把这一行替换到你自己英雄的 *.info.darkest 里（保留 .id/.level/.launch/.target/.effect 等原有字段），
+// 只需要把 .type "melee" / .type "ranged" 改成 .type "shadow_step"。
+//
+// 修改前：
+// combat_skill: .id "smite" .level 0 .type "melee" .atk 85% .dmg 0% .crit 0% .launch 21 .target 12 .is_crit_valid True .effect "Unholy Killer 1" .generation_guaranteed true
+//
+// 修改后（原版 melee/ranged 触发器不再生效，改由 shadow_step_type_additional_effect_ids 接管）：
+combat_skill: .id "smite" .level 0 .type "shadow_step" .atk 85% .dmg 0% .crit 0% .launch 21 .target 12 .is_crit_valid True .effect "Unholy Killer 1" .generation_guaranteed true
+
+// 注意：.type 不要写成 "teleport" / "melee" / "ranged" / "move"，
+// 这四种类型被本 DLL 屏蔽（尤其 teleport 会把英雄传送出战斗）。

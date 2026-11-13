@@ -1,0 +1,28 @@
+{
+   // 示例：自定义 .type "shadow_step" 的 trinket 触发器。
+   // trinket 也可以用 trinket 风格的字段名 <type>_type_additional_effects。
+   "entries":
+   [
+      {
+         "id" : "CTE Shadow Step Charm",
+         "buffs" :
+         [
+            "CTE Shadow Step Mark"
+         ],
+         "hero_class_requirements" : [ ],
+         "rarity" : "very_rare",
+         "price" : 10000,
+         "limit" : 1,
+         "origin_dungeon" : "",
+
+         // 英雄使用 .type "shadow_step" 的技能时，额外追加这个效果
+         "shadow_step_type_additional_effects" :
+         [
+            "CTE Shadow Step Stress Heal"
+         ]
+      }
+   ]
+
+   // 两种后缀在 buff / trinket 文件里都可用，例如上面的 trinket 也可以写成：
+   // "shadow_step_type_additional_effect_ids" : [ "CTE Shadow Step Stress Heal" ]
+}

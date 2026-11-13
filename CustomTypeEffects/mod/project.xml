@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	<PreviewIconFile></PreviewIconFile>
+	<ItemDescriptionShort>Adds custom skill type additional-effect triggers for buffs and trinkets.</ItemDescriptionShort>
+	<ModDataPath></ModDataPath>
+	<Title>Custom Type Additional Effects</Title>
+	<Language>english</Language>
+	<UpdateDetails></UpdateDetails>
+	<Visibility>public</Visibility>
+	<UploadMode>direct_upload</UploadMode>
+	<VersionMajor>1</VersionMajor>
+	<VersionMinor>0</VersionMinor>
+	<TargetBuild>0</TargetBuild>
+	<Tags>
+		<Tags>DLL Mod</Tags>
+	</Tags>
+	<ItemDescription></ItemDescription>
+	<PublishedFileId>0</PublishedFileId>
+</project>

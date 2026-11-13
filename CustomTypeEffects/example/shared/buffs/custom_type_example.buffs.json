@@ -1,0 +1,32 @@
+{
+   // 示例：自定义 .type "shadow_step" 的 buff 触发器。
+   // 字段格式 = <type>_type_additional_effect_ids
+   // 游戏本体不认识这个字段，会直接忽略；由 custom_type_effects.dll 读取。
+   "buffs":
+   [
+      {
+         "id" : "CTE Shadow Step Mark",
+         "stat_type" : "combat_stat_add",
+         "stat_sub_type" : "speed",
+         "amount" : 1,
+         "duration_type" : "turn_end",
+         "duration" : 2,
+         "remove_if_not_active" : false,
+         "rule_type" : "always",
+         "is_false_rule" : false,
+         "rule_data" : { "float" : 0, "string" : "" },
+
+         // 英雄使用 .type "shadow_step" 的技能时，额外追加这两个效果
+         "shadow_step_type_additional_effect_ids" :
+         [
+            "CTE Shadow Step Heal"
+         ]
+      }
+   ]
+
+   // 下面这些写法会被忽略并在日志里给出警告（默认屏蔽列表）：
+   // "teleport_type_additional_effect_ids" : [ ... ]   // 会传送出战斗
+   // "melee_type_additional_effect_ids"   : [ ... ]   // 已有原版 melee_attack_additional_effect_ids
+   // "ranged_type_additional_effect_ids"  : [ ... ]   // 已有原版 ranged_attack_additional_effect_ids
+   // "move_type_additional_effect_ids"    : [ ... ]
+}

@@ -1,0 +1,7 @@
+// 自定义 type 触发器用到的效果定义。
+// 效果名必须与 buff / trinket JSON 里 *_type_additional_effect_ids 的值完全一致（区分大小写）。
+// 游戏启动时会把 *.effects.darkest 载入全局 effects 库，DLL 在战斗时按名字查出 Effect*。
+
+effect: .name "CTE Shadow Step Heal" .target "performer" .curio_result_type "positive" .chance 100% .heal 3 .on_hit true .on_miss false .queue true .source_heal_type hero_skill
+
+effect: .name "CTE Shadow Step Stress Heal" .target "performer" .chance 100% .healstress 2 .on_hit true .on_miss false .queue true
