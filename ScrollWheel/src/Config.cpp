@@ -48,6 +48,12 @@ namespace Config
 		"guild_visible_rows = 1         ; max 公式保留行数 R（=1 保证不滚不到底）\n"
 		"guild_row_height = 91.0        ; 行高回退；优先用运行时技能槽 Y 相邻差\n"
 		"\n"
+		"; === v12 工会技能容量防护（技能过多时防止 UI 崩溃）===\n"
+		"; 实测本地 mod 英雄最多 192 个 combat_skill（Laevateinn.info.darkest），\n"
+		"; v11.2 的 DLL 侧表只有 64 槽，超出部分被硬钳制，形成容量落差。\n"
+		"guild_max_slots = 256          ; 有效上限 1..256；设 64 = 一键回退 v11.2 旧容量\n"
+		"guild_auto_cap = 1             ; =1 技能多时自动抬高滚动上限，0 = 严格用 guild_cap\n"
+		"\n"
 		"; === v11.2 滚轮按面板激活门控（修「打开补给前滚轮导致预翻页」）===\n"
 		"; 1 = 只在补给/背包网格活跃时消费滚轮并写布局（默认，推荐）\n"
 		"; 0 = 回到 v10 原行为（任何界面滚轮都驱动补给状态机），一键回退\n"
@@ -228,6 +234,10 @@ namespace Config
 			a_out.guildVisibleRows = ToInt(val, a_out.guildVisibleRows);
 		} else if (key == "guild_row_height") {
 			a_out.guildRowHeight = ToFloat(val, a_out.guildRowHeight);
+		} else if (key == "guild_max_slots") {
+			a_out.guildMaxSlots = ToInt(val, a_out.guildMaxSlots);
+		} else if (key == "guild_auto_cap") {
+			a_out.guildAutoCap = ToBool(val, a_out.guildAutoCap);
 		} else if (key == "gate_wheel_by_panel") {
 			a_out.gateWheelByPanel = ToBool(val, a_out.gateWheelByPanel);
 			} else if (key == "debug_sampling") {

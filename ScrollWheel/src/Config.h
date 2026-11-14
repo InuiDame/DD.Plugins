@@ -10,6 +10,11 @@
 
 namespace Config
 {
+	// v12：工会技能槽表的编译期物理容量。必须与 ScrollAsm::kGuildCapacity
+	// 保持一致（tools/test_scroll.cpp 有断言）。取 256 =
+	// 实测本地 mod 英雄最多 192 个 combat_skill（Laevateinn.info.darkest）+ 余量。
+	inline constexpr int kGuildCapacity = 256;
+
 	enum Panel : int
 	{
 		Provision = 0,
@@ -73,6 +78,12 @@ namespace Config
 		int   guildVisibleRows{ 1 };    // max 公式里的保留行数 R（默认 1，保证能滚到底）
 		float guildRowHeight{ 91.f };   // 行高回退；优先用运行时 baseY 相邻差
 
+		// ---- v12 工会技能容量防护（防止技能过多时 UI 崩溃）----
+		// 与 ScrollAsm::kGuildCapacity 同步；离线单测断言两者相等。
+		// 64 = 一键回退到 v11.2 的旧容量行为（不改任何字节，只改这张表里的值）。
+		int  guildMaxSlots{ kGuildCapacity }; // 有效技能槽上限 1..kGuildCapacity
+		bool guildAutoCap{ true };            // 技能多时自动抬高滚动范围上限
+
 		// 可见滚动条：游戏窗口的 owned popup、前台才显示、可拖动/点击/滚轮。
 		// v9：自绘滚动条已彻底移除。饰品库等界面已有游戏原生滚动条，
 		// DLL 不创建窗口、不处理鼠标消息、不画任何 UI。
@@ -89,6 +100,17 @@ namespace Config
 			}
 		}
 		return false;
+	}
+
+	// v12：把玩家 cfg 的有效技能槽上限钳到 [1, kGuildCapacity]。
+	// 纯函数，生产 Install() 与离线单测共用，避免两处各写一套钳制逻辑。
+	// 非法值一律回退到物理容量（而不是 0，0 会让工会滚轮静默失效）。
+	inline std::uint32_t EffectiveGuildMaxSlots(const Data& a_d) noexcept
+	{
+		if (a_d.guildMaxSlots < 1 || a_d.guildMaxSlots > kGuildCapacity) {
+			return static_cast<std::uint32_t>(kGuildCapacity);
+		}
+		return static_cast<std::uint32_t>(a_d.guildMaxSlots);
 	}
 
 	// 默认配置文本（与 mod/ScrollWheel.cfg 一致）。

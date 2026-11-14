@@ -243,46 +243,58 @@ namespace ScrollAsm
 	// 两个 cave 全是纯整数/SSE 指令，**绝不 call C++**（p26 审核 S1：call 会破坏
 	// hook B 依赖的 xmm1 与 hook A 的 rcx=this）。共享一张 DLL 侧表，布局固定，
 	// CaveAsm.h / Hooks.cpp / 离线单测三方共用同一份 offsetof 断言。
+	//
+	// v12 容量防护：DLL 侧影子表 64 -> 256 槽。实测本地 mod 英雄最多 192 个
+	// combat_skill（Laevateinn.info.darkest），旧表把 N 硬钳到 64，多出来的
+	// 技能槽既不进表也不被平移，与角色页面同屏时形成容量落差。
+	// ★ 只扩 DLL 侧影子表；绝不碰游戏自己的 vector，也绝不钳制游戏创建的
+	//   UI 槽数量（那会让 UI 索引与技能逻辑索引脱节，p26 对抗审核 C4）。
+	constexpr std::uint32_t kGuildCapacity = 256;
+	constexpr std::uint32_t kGuildMaxSlots = kGuildCapacity; // 兼容旧名 = 物理容量
 	struct GuildTable
 	{
-		std::uint64_t slots[64];                  // 0x000 技能槽 widget*
-		std::uint32_t baseY[64];                  // 0x200 原始 +0x68 的 float 位模式
-		float         offset[64];                 // 0x300 本帧给该槽 Y 加的增量
-		std::atomic<std::uint32_t> count;         // 0x400
-		std::atomic<std::uint32_t> lastBeat;      // 0x404 hook A 最近见 Guild 的 tick 计数
-		std::atomic<std::uint32_t> active;        // 0x408 tick 侧算出的活跃标志
-		std::atomic<std::uint32_t> beatTick;      // 0x40C tick 侧自增计数
-		std::atomic<std::uint32_t> hits;          // 0x410 hook B 命中次数 [DIAG]
-		std::atomic<std::uint32_t> clipped;       // 0x414 被移到屏幕外的槽数 [DIAG]
+		std::uint64_t slots[kGuildCapacity];      // 0x000 技能槽 widget*
+		std::uint32_t baseY[kGuildCapacity];      // 0x800 原始 +0x68 的 float 位模式
+		float         offset[kGuildCapacity];     // 0xC00 本帧给该槽 Y 加的增量
+		std::atomic<std::uint32_t> count;         // 0x1000
+		std::atomic<std::uint32_t> lastBeat;      // 0x1004 hook A 最近见 Guild 的 tick 计数
+		std::atomic<std::uint32_t> active;        // 0x1008 tick 侧算出的活跃标志
+		std::atomic<std::uint32_t> beatTick;      // 0x100C tick 侧自增计数
+		std::atomic<std::uint32_t> hits;          // 0x1010 hook B 命中次数 [DIAG]
+		std::atomic<std::uint32_t> clipped;       // 0x1014 被移到屏幕外的槽数 [DIAG]
 		// v11.1 诊断：实机日志证明 hook A(0x66E9F0) 的 gBeat 恒 0，必须能区分
 		// 「cave 没执行」与「判据没命中」。四个计数器都在游戏主线程递增，
 		// tick 线程只做 relaxed 读取（仅诊断，撕裂不影响功能）。
-		std::atomic<std::uint32_t> callsA;        // 0x418 hook A 执行次数
-		std::atomic<std::uint32_t> callsB;        // 0x41C hook B 执行次数
-		std::atomic<std::uint64_t> lastVtA;       // 0x420 hook A 最近一次 [rcx] vptr
-		std::atomic<std::uint64_t> lastVtB;       // 0x428 hook B 最近一次 [rdi] vptr
-		std::atomic<std::uint32_t> seenB;         // 0x430 hook B 见到 GuildDisplay 本体次数
+		std::atomic<std::uint32_t> callsA;        // 0x1018 hook A 执行次数
+		std::atomic<std::uint32_t> callsB;        // 0x101C hook B 执行次数
+		std::atomic<std::uint64_t> lastVtA;       // 0x1020 hook A 最近一次 [rcx] vptr
+		std::atomic<std::uint64_t> lastVtB;       // 0x1028 hook B 最近一次 [rdi] vptr
+		std::atomic<std::uint32_t> seenB;         // 0x1030 hook B 见到 GuildDisplay 本体次数
 		// v11.2：★ ASLR 修复 ★ 期望 vptr 必须由 C++ 写成 g_base + 0xEBB8D8。
 		// v11/v11.1 在 cave 里硬编码 PE 磁盘基址下的 0x140EBB8D8，而游戏实机被
 		// 重定位到 0x7FF7D7DD0000（日志 gVtA=7FF7D8C8B8D8 为证），判据永不成立。
-		std::uint64_t expectedVptr;               // 0x438 运行时 GuildDisplay vtable 地址
+		std::uint64_t expectedVptr;               // 0x1038 运行时 GuildDisplay vtable 地址
+		// v12：运行时「有效上限」，由 Hooks::Install 按 cfg 写一次（游戏主线程
+		// 只读，tick 线程不写，无竞态）。cave 从这里取上限而不是内嵌立即数，
+		// 因此 guild_max_slots=64 无需改任何机器码即可回到 v11.2 旧容量。
+		std::uint32_t maxSlots{ kGuildCapacity }; // 0x1040
 	};
-	constexpr std::uint32_t kGuildMaxSlots    = 64;
 	constexpr std::uint32_t kGtSlotsOff       = 0x000;
-	constexpr std::uint32_t kGtBaseYOff       = 0x200;
-	constexpr std::uint32_t kGtOffsetOff      = 0x300;
-	constexpr std::uint32_t kGtCountOff       = 0x400;
-	constexpr std::uint32_t kGtBeatOff        = 0x404;
-	constexpr std::uint32_t kGtActiveOff      = 0x408;
-	constexpr std::uint32_t kGtTickOff        = 0x40C;
-	constexpr std::uint32_t kGtHitsOff        = 0x410;
-	constexpr std::uint32_t kGtClipOff        = 0x414;
-	constexpr std::uint32_t kGtCallsAOff      = 0x418;
-	constexpr std::uint32_t kGtCallsBOff      = 0x41C;
-	constexpr std::uint32_t kGtVtAOff         = 0x420;
-	constexpr std::uint32_t kGtVtBOff         = 0x428;
-	constexpr std::uint32_t kGtSeenBOff       = 0x430;
-	constexpr std::uint32_t kGtVtExpectedOff  = 0x438;
+	constexpr std::uint32_t kGtBaseYOff       = 0x800;
+	constexpr std::uint32_t kGtOffsetOff      = 0xC00;
+	constexpr std::uint32_t kGtCountOff       = 0x1000;
+	constexpr std::uint32_t kGtBeatOff        = 0x1004;
+	constexpr std::uint32_t kGtActiveOff      = 0x1008;
+	constexpr std::uint32_t kGtTickOff        = 0x100C;
+	constexpr std::uint32_t kGtHitsOff        = 0x1010;
+	constexpr std::uint32_t kGtClipOff        = 0x1014;
+	constexpr std::uint32_t kGtCallsAOff      = 0x1018;
+	constexpr std::uint32_t kGtCallsBOff      = 0x101C;
+	constexpr std::uint32_t kGtVtAOff         = 0x1020;
+	constexpr std::uint32_t kGtVtBOff         = 0x1028;
+	constexpr std::uint32_t kGtSeenBOff       = 0x1030;
+	constexpr std::uint32_t kGtVtExpectedOff  = 0x1038;
+	constexpr std::uint32_t kGtMaxSlotsOff    = 0x1040;
 	// ★ ASLR 铁律：GuildDisplay vtable 的「磁盘 VA」只可用于离线断言，
 	// 绝不能出现在 cave 的运行时比较里。实机日志证明游戏基址被重定位到
 	// 0x7FF7D7DD0000（gVtA=7FF7D8C8B8D8），与 0x140EBB8D8 永不相等。
@@ -306,6 +318,11 @@ namespace ScrollAsm
 	static_assert(offsetof(GuildTable, lastVtB)  == kGtVtBOff);
 	static_assert(offsetof(GuildTable, seenB)    == kGtSeenBOff);
 	static_assert(offsetof(GuildTable, expectedVptr) == kGtVtExpectedOff);
+	static_assert(offsetof(GuildTable, maxSlots) == kGtMaxSlotsOff);
+	// v12：三张表按偏移连续分区，最大索引处不得互相重叠 / 越过 count 字段。
+	static_assert(kGtSlotsOff  + kGuildCapacity * 8u <= kGtBaseYOff);
+	static_assert(kGtBaseYOff  + kGuildCapacity * 4u <= kGtOffsetOff);
+	static_assert(kGtOffsetOff + kGuildCapacity * 4u <= kGtCountOff);
 
 	// hook A：0x66E9F0 BuildingDisplay::PreChildrenShowInternal 入口（slot23，每帧）。
 	// 只有 [rcx] == GuildDisplay vtable 才刷新技能槽指针表；其它建筑零干预。
@@ -331,7 +348,10 @@ namespace ScrollAsm
 		explicit GuildRefreshAsm(const GuildParams& a_p)
 		{
 			using namespace Xbyak::util;
-			Xbyak::Label done, countOk, loop, hit, next, notGuild;
+			// v12：新增纵深防御分支后，前向短跳(rel8)距离超过 ±127 会让
+			// Xbyak 抛 "label is too far"。统一用 rel32，代价仅是每条跳转多 4B。
+			setDefaultJmpNEAR(true);
+			Xbyak::Label done, countOk, loop, hit, next, notGuild, badTable;
 			pushfq();
 			push(rax); push(rdx); push(r8); push(r9); push(r10); push(r11);
 			// rcx = this 必须原样保留；rsp = R0-56
@@ -346,9 +366,20 @@ namespace ScrollAsm
 			mov(r8,  qword[rcx + 0x278]);       // vector end
 			sub(r8, rdx);
 			sar(r8, 3);                         // N = (end-begin)>>3
-			cmp(r8, kGuildMaxSlots);
+			// v12 纵深防御：半初始化 / 被污染的 vector 绝不遍历。
+			// begin=null 会让 [rdx+r9*8] 空指针读；end<begin 会得到巨大的
+			// 无符号 N，旧代码虽钳到 64 但仍会读 64 个野指针。
+			test(rdx, rdx);
+			jz(badTable);
+			test(r8, r8);
+			js(badTable);
+			// v12：上限来自表（cfg 可配、C++ 写一次），不再内嵌立即数。
+			mov(eax, dword[r11 + kGtMaxSlotsOff]);
+			test(eax, eax);
+			jz(badTable);
+			cmp(r8, rax);
 			jbe(countOk);
-			mov(r8, kGuildMaxSlots);
+			mov(r8, rax);
 			L(countOk);
 			// p28 应修 2：先填满 slots/baseY，**最后**才发布 count 与 lastBeat。
 			// 否则 tick 线程/hook B 可能在「新 count + 旧 slots」的窗口里命中悬垂指针。
@@ -359,6 +390,8 @@ namespace ScrollAsm
 			mov(r10, qword[rdx + r9 * 8]);      // slot*
 			test(r10, r10);
 			jz(hit);                            // 空指针：写 0 占位，避免悬垂命中
+			test(r10, 7);                       // v12：非 8 对齐 = 野指针，同样写 0
+			jnz(hit);
 			mov(qword[r11 + kGtSlotsOff + r9 * 8], r10);
 			mov(eax, dword[r10 + 0x68]);        // 原始 Y（游戏自己写的 baseline）
 			mov(dword[r11 + kGtBaseYOff + r9 * 4], eax);
@@ -373,6 +406,11 @@ namespace ScrollAsm
 			mov(dword[r11 + kGtCountOff], r8d);  // 表已完整，才发布 N
 			mov(eax, dword[r11 + kGtTickOff]);   // 纯 mov 读 tick 计数，绝不 call
 			mov(dword[r11 + kGtBeatOff], eax);
+			jmp(notGuild);
+			L(badTable);
+			// v12：vector 不可信时宁可让工会滚轮本帧不生效（count=0 →
+			// tick 侧 active=false → offset 全 0 → 零干预），绝不带着野指针刷新。
+			mov(dword[r11 + kGtCountOff], 0);
 			L(notGuild);
 			pop(r11); pop(r10); pop(r9); pop(r8); pop(rdx); pop(rax); popfq();
 			db(kGuildRefreshBytes, sizeof(kGuildRefreshBytes));
@@ -387,8 +425,10 @@ namespace ScrollAsm
 		explicit GuildShiftAsm(const GuildParams& a_p)
 		{
 			using namespace Xbyak::util;
+			// 与 hook A 同理：v12 分支变多，前向 jcc 必须是 rel32。
+			setDefaultJmpNEAR(true);
 			Xbyak::Label done, countOk, loop, hit, notSelf;
-			Xbyak::Label rCountOk, rLoop, rDone, rZero, rNext;
+			Xbyak::Label rCountOk, rLoop, rDone, rZero, rNext, rBadTable;
 			pushfq();
 			push(rax); push(rcx); push(rdx); push(r8); push(r9); push(r10); push(r11);
 			// rdi = 当前 widget，绝不改动；xmm1 是本 cave 唯一有意修改的寄存器
@@ -409,9 +449,18 @@ namespace ScrollAsm
 			mov(r8,  qword[rdi + 0x278]);       // vector end
 			sub(r8, rdx);
 			sar(r8, 3);                         // N = (end-begin)>>3
-			cmp(r8, kGuildMaxSlots);
+			// v12 纵深防御（与 hook A 同构）：begin 空 / end<begin / 上限未初始化
+			// 时一律不刷新表，把 count 发布为 0，避免 [rdx+r9*8] 野指针读。
+			test(rdx, rdx);
+			jz(rBadTable);
+			test(r8, r8);
+			js(rBadTable);
+			mov(eax, dword[r11 + kGtMaxSlotsOff]); // v12 运行时有效上限
+			test(eax, eax);
+			jz(rBadTable);
+			cmp(r8, rax);
 			jbe(rCountOk);
-			mov(r8, kGuildMaxSlots);
+			mov(r8, rax);
 			L(rCountOk);
 			xor_(r9d, r9d);
 			L(rLoop);
@@ -420,6 +469,8 @@ namespace ScrollAsm
 			mov(r10, qword[rdx + r9 * 8]);
 			test(r10, r10);
 			jz(rZero);
+			test(r10, 7);                       // v12：非 8 对齐 = 野指针，写 0 占位
+			jnz(rZero);
 			mov(qword[r11 + kGtSlotsOff + r9 * 8], r10);
 			mov(eax, dword[r10 + 0x68]);
 			mov(dword[r11 + kGtBaseYOff + r9 * 4], eax);
@@ -436,15 +487,23 @@ namespace ScrollAsm
 			mov(dword[r11 + kGtBeatOff], eax);
 			jmp(done);                           // GuildDisplay 本体自身不需要平移
 
+			L(rBadTable);
+			// v12：vector 不可信 → 本帧零干预（count=0），绝不带着野指针刷新。
+			mov(dword[r11 + kGtCountOff], 0);
+			jmp(done);
+
 			L(notSelf);
 			// ---- 原有：命中技能槽表才平移 ----
 			mov(eax, dword[r11 + kGtActiveOff]);
 			test(eax, eax);
 			jz(done);                            // 工会未激活：零干预
+			mov(eax, dword[r11 + kGtMaxSlotsOff]); // v12 有效上限
+			test(eax, eax);
+			jz(done);
 			mov(ecx, dword[r11 + kGtCountOff]);
-			cmp(ecx, kGuildMaxSlots);
+			cmp(ecx, eax);
 			jbe(countOk);
-			mov(ecx, kGuildMaxSlots);
+			mov(ecx, eax);
 			L(countOk);
 			xor_(edx, edx);                     // i = 0
 			L(loop);

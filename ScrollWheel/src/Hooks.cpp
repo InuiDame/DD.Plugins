@@ -312,9 +312,15 @@ namespace Hooks
 			}
 			const std::uint32_t tick = g_guild.beatTick.fetch_add(1, std::memory_order_relaxed) + 1;
 			const std::uint32_t last = g_guild.lastBeat.load(std::memory_order_relaxed);
+			// v12：有效上限与两个 cave 读的是同一个来源（表里的 maxSlots，由 cfg
+			// 在 Install 时写一次），再与编译期物理容量取 min，任何情况下都不会
+			// 越界写 slots/baseY/offset 三张表。
+			const std::uint32_t cfgLimit = Config::EffectiveGuildMaxSlots(g_cfg);
+			const std::uint32_t limit = cfgLimit < ScrollAsm::kGuildCapacity
+				? cfgLimit : ScrollAsm::kGuildCapacity;
 			std::uint32_t n = g_guild.count.load(std::memory_order_relaxed);
-			if (n > ScrollAsm::kGuildMaxSlots) {
-				n = ScrollAsm::kGuildMaxSlots;
+			if (n > limit) {
+				n = limit;
 			}
 			const bool active = (tick - last) <= kGuildActiveTicks && n > 0;
 			g_guild.active.store(active ? 1u : 0u, std::memory_order_relaxed);
@@ -361,8 +367,18 @@ namespace Hooks
 			const float rawMax = static_cast<float>(
 				n > static_cast<std::uint32_t>(g_guildParams.visibleRows)
 					? n - static_cast<std::uint32_t>(g_guildParams.visibleRows) : 0u) * rowH;
-			const float cap = g_cfg.guildCap > 0.f && std::isfinite(g_cfg.guildCap)
+			float cap = g_cfg.guildCap > 0.f && std::isfinite(g_cfg.guildCap)
 				? g_cfg.guildCap : 2000.f;
+			// v12：技能数远超旧 cfg 的 guild_cap（默认 2000）时 rawMax 会被钳死，
+			// 192 个技能永远滚不到底，后面的技能槽只能堆在可视区外。
+			// auto_cap 按本帧实际 N 抬高上限；绝对硬上限防 vector 被污染时的异常值。
+			if (g_cfg.guildAutoCap && rawMax > cap) {
+				const float need = rawMax * 1.05f + rowH;
+				constexpr float kHardCap = 100000.f;
+				if (std::isfinite(need) && need > cap && need < kHardCap) {
+					cap = need;
+				}
+			}
 			g_guildParams.fixedMax = std::clamp(
 				std::isfinite(rawMax) ? rawMax : 0.f, 0.f, cap);
 			Wheel::RecomputeMax(g_guildState, g_guildParams);
@@ -371,7 +387,9 @@ namespace Hooks
 
 			const float cur = g_guildState.current;
 			std::uint32_t clipped = 0;
-			for (std::uint32_t i = 0; i < ScrollAsm::kGuildMaxSlots; ++i) {
+			// v12：整张物理表每帧清零（而不是只清到有效上限），避免旧版本
+			// 残留的 offset 在 cfg 调大上限后被 cave 读到。256 次 float 写可忽略。
+			for (std::uint32_t i = 0; i < ScrollAsm::kGuildCapacity; ++i) {
 				float off = 0.f;
 				if (active && i < n && cur > 0.5f) {
 					const float y0 = bitsToFloat(g_guild.baseY[0]);
@@ -558,7 +576,8 @@ namespace Hooks
 				     "target={} cur={} first={} lastIdx={} inRect={} enabled={} "
 				     "active={} clip={} p5src={} p5fail={} skipped={} "
 				     "gActive={} gN={} gCur={} gMax={} gHit={} gClip={} gBeat={} "
-				     "gACalls={} gBCalls={} gSeenB={} gVtA={:X} gVtB={:X} pRecent={}",
+				     "gACalls={} gBCalls={} gSeenB={} gVtA={:X} gVtB={:X} "
+				     "gSlots={} gAutoCap={} pRecent={}",
 					g_tickCount.load(std::memory_order_relaxed),
 					g_wheelSum.load(std::memory_order_relaxed),
 					Wheel::g_queue.write.load(std::memory_order_relaxed),
@@ -583,6 +602,7 @@ namespace Hooks
 					g_guild.seenB.load(std::memory_order_relaxed),
 					g_guild.lastVtA.load(std::memory_order_relaxed),
 					g_guild.lastVtB.load(std::memory_order_relaxed),
+					g_guild.maxSlots, static_cast<int>(g_cfg.guildAutoCap),
 					panelRecent);
 			}
 		}
@@ -875,6 +895,13 @@ namespace Hooks
 				g_guild.expectedVptr = g_base + ScrollAsm::kGuildVtableRva;
 				INFO("v11.2 guild runtime vtable = 0x{:X} (base 0x{:X} + RVA 0x{:X})",
 					g_guild.expectedVptr, g_base, ScrollAsm::kGuildVtableRva);
+				// v12：把 cfg 的有效上限写进 DLL 侧表；两个 cave 只读它。
+				// guild_max_slots=64 即可在机器码完全不变的情况下回到 v11.2 旧容量。
+				g_guild.maxSlots = Config::EffectiveGuildMaxSlots(g_cfg);
+				INFO("v12 GuildSkillCapacity: physical={} effective={} auto_cap={} "
+				     "(cfg guild_cap={}; v11.2 hard limit was 64; local mod max=192 skills)",
+					ScrollAsm::kGuildCapacity, g_guild.maxSlots,
+					static_cast<int>(g_cfg.guildAutoCap), g_cfg.guildCap);
 				rp.tableAddr = reinterpret_cast<std::uint64_t>(&g_guild);
 				rp.resumeAddr = g_base + ScrollAsm::kGuildRefreshResume;
 				ScrollAsm::GuildParams sp{ rp.tableAddr, g_base + ScrollAsm::kGuildShiftResume };

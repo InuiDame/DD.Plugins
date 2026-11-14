@@ -451,9 +451,15 @@ v4~v8 的跳格裁剪 / 整行量化 / 自绘滚动条均已被实机证伪并�
 | 动态范围 | `max = clamp((N - R) * rowH, 0, cap)`；`N` = 技能槽数，`rowH` 优先取运行时槽 Y 相邻差（不硬编码 91），`R` 默认 1 保证能滚到底 |
 
 **开关**：`guild_scroll`（另有 `guild_step` / `guild_cap` / `guild_visible_rows` /
-`guild_row_height`）。代码默认与 cfg 模板都是 `0`；用户真实 cfg 已显式写 `1`。
+`guild_row_height`，以及 v12 的 `guild_max_slots` / `guild_auto_cap`）。
+代码默认与 cfg 模板都是 `0`；用户真实 cfg 已显式写 `1`。
 `0` 时两个工会 cave **一个都不装**，新增校验也完全不执行，已验收的 v10
 四个 cave 不受影响（`p26` 审核 S3）。
+
+**v12 容量开关**（详见文末 §9）：`guild_max_slots = 256`（有效技能槽上限，
+设 `64` 即字节不改地回到 v11.2 旧容量）、`guild_auto_cap = 1`（技能数多时
+自动抬高滚动范围，避免旧 cfg 的 `guild_cap = 2000` 卡死 192 个技能）。
+两者的代码默认值就是 `256` / `1`，**老 cfg 缺这两个键也会生效，绝不覆盖玩家配置**。
 
 **另一个独立开关**：`gate_wheel_by_panel`（v11.2，代码/模板/用户 cfg 三处显式 `1`）。
 `1` = 只在补给/背包网格活跃时消费滚轮并写布局数组，修「打开补给前滚轮 →
@@ -489,6 +495,7 @@ v4~v8 的跳格裁剪 / 整行量化 / 自绘滚动条均已被实机证伪并�
    | `gSeenB` | **最关键**：hook B 累计见到 GuildDisplay 本体的次数，打开工会应持续递增 |
    | `gVtA` / `gVtB` | 两个 cave 最近一次读到的 vptr（十六进制），用于判据校准；**v11.1 就是靠它们发现 ASLR** |
    | `pRecent` | v11.2 面板门控状态：`true` = 目标网格活跃（含 480ms 宽限），滚轮会驱动补给/背包；`false` = 滚轮被丢弃、布局数组不被触碰 |
+   | `gSlots` / `gAutoCap` | **v12**：本帧有效技能槽上限 / 自动抬高滚动上限开关状态；启动日志另有 `v12 GuildSkillCapacity: physical=256 effective=…` |
 
    **DIAG 只作辅助定位，功能是否生效一律以实机画面为准**。
    已确证：工会滚轮可以完全生效而 `gSeenB/gN/gActive` 仍全 0
@@ -525,6 +532,84 @@ v4~v8 的跳格裁剪 / 整行量化 / 自绘滚动条均已被实机证伪并�
 `gSeenB/gN/gActive/gHit` 全 0，说明 DLL 侧统计未覆盖实际生效路径；
 这不是功能缺陷，以画面为准。若将来复核可在 cave 里加无条件计数。
 `guild_scroll = 0` 可随时完全关闭两个工会 cave（一键回退）。
+
+---
+
+## §9 v12 GuildSkillCapacity —— 工会技能过多时的 UI 容量防护
+
+> 需求来源：本地 class mod 让单个英雄拥有大量战斗技能，工会技能栏与角色页面
+> 同屏时 UI 崩溃 / 错位。**本节只声称「消除已确证的结构性风险 + 纵深防御」，
+> 不声称「已定位崩溃根因」**——详见 `docs/adr/0002-guild-skill-capacity.md`。
+
+### 9.1 已确证的事实与定性边界
+
+| 项 | 事实 | 来源 |
+| --- | --- | --- |
+| 技能数量 | 原版英雄 35 个 `combat_skill:`；本地 mod 英雄最多 **192** 个（`mods\Laevateinn\heroes\Laevateinn\Laevateinn.info.darkest`） | 游戏资源实测 |
+| 旧容量 | v11.2 的 DLL 侧影子表 `GuildTable` 固定 **64 槽**，三个 cave 都 `cmp N,64; mov N,64` 钳制 | `src/CaveAsm.h`（v11.2） |
+| 落差 | 超出 64 的技能槽既不进影子表、也不被平移；多出来的 UI 元素与角色页面同屏 | 结构推导 |
+| 崩溃证据 | **没有** minidump / 异常码 / 崩溃堆栈；`app.log` 只有「上次异常退出」时间戳 | 阶段一调研 + 红队 A |
+| 被推翻的假设 | `.max_rows 7` 是角色页容量、`roster.element_max 8` 是工会上限、64 槽表会越界写、给 `guild.layout.darkest` 加 `.element_max` 有效、v6 写共享常量是崩溃 | 红队 A 证伪清单 |
+
+**因此**：v12 修的是「唯一有确证证据的容量落差」并补上指针有效性防御，
+**不是**对某个已定位崩溃地址的定点补丁。若 `guild_max_slots = 256` 之后仍崩溃，
+应按 §9.5 采集 minidump 再定位；不要据此声称根因已找到。
+
+### 9.2 具体改动（全部在 `scroll_wheel.dll` 内部，不新建 DLL）
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/CaveAsm.h` | `GuildTable` 三张表 64 → **256** 槽；全部 `kGt*Off` 偏移按新布局重算并用 `static_assert` 锁死；新增 `maxSlots` 字段（`0x1040`），两个 cave 从表里读有效上限而不再内嵌立即数 |
+| `src/CaveAsm.h` | 两个 cave 新增纵深防御：`begin` 为空 / `end < begin` / `maxSlots` 未初始化 → `count = 0`（本帧零干预，绝不遍历野指针）；技能槽指针非 8 对齐 → 写 0 占位；`setDefaultJmpNEAR(true)` 避免新增分支让 rel8 短跳抛 `label is too far` |
+| `src/Config.h/.cpp` | 新增 `guild_max_slots`（默认 256，钳到 `1..256`）、`guild_auto_cap`（默认 `1`）；纯函数 `EffectiveGuildMaxSlots()` 供生产与离线单测共用 |
+| `src/Hooks.cpp` | `UpdateGuild` 用有效上限钳 `N`；`offset[]` 按**物理容量**每帧全量清零；`auto_cap` 按本帧 `N` 抬高滚动上限（带 100000 硬上限）；DIAG 增加 `gSlots` / `gAutoCap` |
+| `mod/ScrollWheel.cfg` | 模板显式写出两个新键；**仅首次生成时写入，绝不覆盖已有玩家 cfg** |
+| `tools/test_scroll.cpp` | 11 条新断言：容量 ≥192、三表分区不重叠、全字段 `offsetof`、ASLR 新偏移 `0x1038`、cfg 解析 / 回退 / 非法值钳制 |
+
+### 9.3 为什么不会摧毁 ScrollWheel 现有功能
+
+- **不新建 DLL**：合并进同一个 DLL，彻底避开「两个 DLL 抢 `0x66E9F0` / `0x7F5EDD` 同一批 patch 字节」的 Critical 冲突（红队 B C1）。`VerifyExtra` / `VerifyGuild` 校验的游戏字节**一字未动**。
+- **不碰 v10 四个 cave**：输入 cave、面板 gate、逐格裁剪的 RVA 与机器码均未改；校验失败仍只跳过工会 hook、绝不 `return`。
+- **不钳制游戏创建的 UI 槽数量**：只扩 DLL 侧影子表。游戏自己创建的技能槽、索引与技能逻辑保持一一对应，避免红队 B C4 的「UI 索引与逻辑索引脱节」。
+- **不改游戏 vector、不跨 CRT 扩容、不写 `0x2B8EBAC`**：规避 C5 与 v6 实机证伪的错位。
+- **不改 UI 索引语义**：`guild_max_slots = 64` 时 cave 读到的上限就是 64，行为与 v11.2 逐字节等价（机器码不变，只改表里一个值）。
+- ASLR 判据仍是 `g_base + 0xEBB8D8`（`expectedVptr` 只是偏移从 `0x438` 移到 `0x1038`，离线单测已断言新字节）。
+
+### 9.4 验收清单（重启游戏）
+
+1. 启动日志出现 `v12 GuildSkillCapacity: physical=256 effective=256 auto_cap=1 ...`。
+   若 `effective=64`，说明玩家 cfg 显式写了 `guild_max_slots = 64`（回退状态）。
+2. `[DIAG]` 新增 `gSlots=256 gAutoCap=1`；原有 `gN/gMax/gHit/gACalls/gBCalls` 语义不变。
+3. 选一个技能最多的 mod 英雄（如 Laevateinn，192 个技能）打开工会并**同时打开角色页面**：
+   不崩溃、不错位、能滚到最后一个技能、点击技能仍可正常升级（UI 索引未脱节）。
+4. **回归 v10 / v11**：出征补给与地牢背包滚轮、v10 裁剪、v11.2 面板门控
+   （先在城镇滚滚轮再开补给应停在第一页）全部照常。
+5. **A/B 对照**：`guild_max_slots = 256` ↔ `64`、`guild_auto_cap = 1` ↔ `0`、
+   `guild_scroll = 0`，各重启一次，记录是否仍崩溃 / 能否滚到底。
+6. 离线单测：`xmake build -P . scroll_wheel_test` →
+   `scroll_wheel_test.exe <Darkest.exe>`，期望 **150 PASS / 0 FAIL**。
+
+### 9.5 若仍崩溃：取证清单
+
+现有资料无法定位崩溃点，需要一次带证据的复现：
+
+- 记录 `Darkest.exe` 的 SHA1、运行时基址、`DDModLoader.log` 里实际加载的 DLL 列表；
+- 记录英雄技能数 `N`、是否同时打开工会与角色页面、`[DIAG]` 的 `gN/gMax/gHit/gACalls/gBCalls`；
+- 用 `procdump -ma -e Darkest.exe` 或 WER LocalDumps 采 minidump，附 `DDModLoader\log\scroll_wheel.log`；
+- 对照矩阵：技能数 `35 / 103 / 192` × 「单开工会 / 单开角色页 / 同时打开」×
+  `guild_scroll = 1 / 0`。
+- **先做二分**：`guild_scroll = 0` 重启。崩溃消失 ⇒ 与两个工会 cave 相关；
+  仍崩 ⇒ 是原版游戏 / mod 数据自身问题，不要再改 ScrollWheel。
+
+### 9.6 一键回退（按影响范围从小到大）
+
+| 范围 | 操作 |
+| --- | --- |
+| 只回退容量 | cfg 写 `guild_max_slots = 64` 保存重启 |
+| 只回退滚动上限 | cfg 写 `guild_auto_cap = 0` 保存重启 |
+| 关闭全部工会 hook | cfg 写 `guild_scroll = 0` 保存重启（v10 四个 cave 保持） |
+| 禁用整个 DLL | `DDModLoader.cfg` 写 `0|<scroll_wheel.dll 绝对路径>`（`DD Mod Lib` 由加载器强制加载，GUI 关不掉） |
+| 换回旧二进制 | 用 `build\scrollwheel\scroll_wheel.v*.dll.bak` 覆盖 |
 
 ---
 

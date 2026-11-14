@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -513,21 +514,29 @@ namespace
 	{
 		std::puts("v11 guild scroll (experimental, isolated switch):");
 		using namespace ScrollAsm;
-		Check(sizeof(GuildTable) >= kGtVtExpectedOff + 8,
-			"GuildTable 覆盖全部 cave 偏移（含 v11.2 运行时 vtable）");
+		Check(sizeof(GuildTable) >= kGtMaxSlotsOff + 4,
+			"v12 GuildTable 覆盖全部 cave 偏移（含 vtable 与 maxSlots）");
 		Check(offsetof(GuildTable, slots) == kGtSlotsOff &&
 		      offsetof(GuildTable, baseY) == kGtBaseYOff &&
 		      offsetof(GuildTable, offset) == kGtOffsetOff &&
 		      offsetof(GuildTable, count) == kGtCountOff &&
+		      offsetof(GuildTable, lastBeat) == kGtBeatOff &&
 		      offsetof(GuildTable, active) == kGtActiveOff &&
 		      offsetof(GuildTable, beatTick) == kGtTickOff &&
+		      offsetof(GuildTable, hits) == kGtHitsOff &&
+		      offsetof(GuildTable, clipped) == kGtClipOff &&
 		      offsetof(GuildTable, callsA) == kGtCallsAOff &&
 		      offsetof(GuildTable, callsB) == kGtCallsBOff &&
 		      offsetof(GuildTable, lastVtA) == kGtVtAOff &&
 		      offsetof(GuildTable, lastVtB) == kGtVtBOff &&
 		      offsetof(GuildTable, seenB) == kGtSeenBOff &&
-		      offsetof(GuildTable, expectedVptr) == kGtVtExpectedOff,
-			"cave 用的表偏移与结构体一致（含 v11.1 诊断 / v11.2 运行时 vtable）");
+		      offsetof(GuildTable, expectedVptr) == kGtVtExpectedOff &&
+		      offsetof(GuildTable, maxSlots) == kGtMaxSlotsOff,
+			"cave 用的表偏移与结构体一致（含 DIAG / 运行时 vtable / v12 有效上限）");
+		Check(kGtSlotsOff  + kGuildCapacity * 8u <= kGtBaseYOff &&
+		      kGtBaseYOff  + kGuildCapacity * 4u <= kGtOffsetOff &&
+		      kGtOffsetOff + kGuildCapacity * 4u <= kGtCountOff,
+			"v12 三张表按偏移分区互不重叠，最大索引不越界");
 		Check(kGuildRefreshResume == kGuildRefreshRva + 5, "hook A 5B stolen -> resume +5");
 		Check(kGuildShiftResume == kGuildShiftRva + 6, "hook B 6B stolen -> resume +6");
 		Check(kGuildVtSlot23 == 0xEBB990u, "GuildDisplay 虚表 slot23 偏移 = 0xEBB990");
@@ -541,10 +550,11 @@ namespace
 		Check(a[0] == 0x9C, "hook A 入口 pushfq");
 		static constexpr std::uint8_t kAbsJmp[]{ 0xFF, 0x25, 0, 0, 0, 0 };
 		static constexpr std::uint8_t kMovAbs[]{ 0x48, 0xB8 };
-		// v11.2 ★ ASLR 修复：运行时判据存在 GuildTable.expectedVptr，
-		// cave 用 mov rax,[r11+0x438] 读它，绝不内嵌 0x140EBB8D8。
+		// v11.2 ★ ASLR 修复：运行时判据存在 GuildTable.expectedVptr。
+		// v12 三张表从 64 槽扩到 256 槽后，该字段偏移 0x438 -> 0x1038，
+		// cave 用 mov rax,[r11+0x1038] 读它，绝不内嵌 0x140EBB8D8。
 		static constexpr std::uint8_t kLoadExpectedVt[]{
-			0x49, 0x8B, 0x83, 0x38, 0x04, 0x00, 0x00 };
+			0x49, 0x8B, 0x83, 0x38, 0x10, 0x00, 0x00 };
 		Check(Contains(a, sa, kLoadExpectedVt, sizeof(kLoadExpectedVt)),
 			"hook A 从 GuildTable 读运行时 vtable（ASLR 安全）");
 		Check(!Contains(a, sa, kMovAbs, 2),
@@ -596,6 +606,40 @@ namespace
 		      tmpl.find("guild_visible_rows") != std::string_view::npos &&
 		      tmpl.find("guild_row_height") != std::string_view::npos,
 			"cfg 模板含全部 4 个 v11 参数键");
+
+		// ---- v12 GuildSkillCapacity：容量 / cfg / 一键回退 / 非法值 ----
+		// 实测本地 mod 英雄最多 192 个 combat_skill（Laevateinn.info.darkest），
+		// 而 v11.2 的 GuildTable 只有 64 槽，超出部分被硬钳制 → 工会技能栏
+		// 与角色页面同时显示时存在容量落差。前两条实现前必须失败（RED）。
+		Check(ScrollAsm::kGuildMaxSlots >= 192u,
+			"v12 技能槽表容量必须覆盖实测最大技能数 192（Laevateinn）");
+		Check(tmpl.find("guild_max_slots") != std::string_view::npos &&
+		      tmpl.find("guild_auto_cap") != std::string_view::npos,
+			"v12 cfg 模板必须显式暴露容量与自动上限开关");
+		Check(tmpl.find("guild_max_slots = 256") != std::string_view::npos &&
+		      tmpl.find("guild_auto_cap = 1") != std::string_view::npos,
+			"v12 cfg 模板显式写 256 / 1（杜绝隐式开关）");
+		Check(ScrollAsm::kGuildCapacity == 256u &&
+		      ScrollAsm::kGuildMaxSlots == ScrollAsm::kGuildCapacity,
+			"v12 物理容量 = 256，兼容别名与物理容量一致");
+		Check(Config::kGuildCapacity == static_cast<int>(ScrollAsm::kGuildCapacity),
+			"Config 与 CaveAsm 容量常量一致（否则 tick 与 cave 上限不同）");
+		Check(Config::Data{}.guildMaxSlots == Config::kGuildCapacity &&
+		      Config::Data{}.guildAutoCap,
+			"v12 代码默认 256 / auto_cap 开启（老 cfg 缺键也生效）");
+		Check(Config::EffectiveGuildMaxSlots(Config::Data{}) == 256u,
+			"v12 默认有效上限 = 256");
+		Config::Data dv{};
+		Config::Parse("guild_max_slots = 64\nguild_auto_cap = 0\n", dv);
+		Check(Config::EffectiveGuildMaxSlots(dv) == 64u && !dv.guildAutoCap,
+			"v12 guild_max_slots=64 / auto_cap=0 可一键回退 v11.2 行为");
+		Config::Data dbad{};
+		Config::Parse("guild_max_slots = 9999\n", dbad);
+		Check(Config::EffectiveGuildMaxSlots(dbad) == 256u,
+			"v12 超范围上限被钳回物理容量");
+		Config::Parse("guild_max_slots = 0\n", dbad);
+		Check(Config::EffectiveGuildMaxSlots(dbad) == 256u,
+			"v12 上限 0 被钳回物理容量（不会静默变成 0 槽）");
 		Config::Data d1;
 		Config::Parse("guild_scroll = 1\nguild_step = 45.0\nguild_cap = 700.0\n"
 		              "guild_visible_rows = 2\nguild_row_height = 88.0\n", d1);
@@ -686,6 +730,8 @@ namespace
 
 int wmain(int a_argc, wchar_t* a_argv[])
 {
+	// 无缓冲：cave 生成阶段若抛异常/崩溃，已输出的诊断行不会因块缓冲丢失。
+	::setvbuf(stdout, nullptr, _IONBF, 0);
 	if (a_argc != 2) {
 		std::puts("usage: scroll_wheel_test <Darkest.exe>");
 		return 2;
@@ -699,7 +745,17 @@ int wmain(int a_argc, wchar_t* a_argv[])
 	TestConfig();
 	TestDefaultPolicy();
 	TestV10Clipping();
-	TestV11Guild();
+	// Xbyak 在 label 未绑定 / 指令不支持时会抛异常；捕获后仍要如实报告失败，
+	// 而不是让进程直接 terminate（那样只会看到 0xC0000409 和半截日志）。
+	try {
+		TestV11Guild();
+	} catch (const std::exception& e) {
+		std::printf("  [FAIL] TestV11Guild threw std::exception: %s\n", e.what());
+		++g_failures;
+	} catch (...) {
+		std::printf("  [FAIL] TestV11Guild threw unknown exception\n");
+		++g_failures;
+	}
 
 	std::ifstream stream{ a_argv[1], std::ios::binary };
 	const std::vector<char> probe{ std::istreambuf_iterator<char>{ stream }, std::istreambuf_iterator<char>{} };
