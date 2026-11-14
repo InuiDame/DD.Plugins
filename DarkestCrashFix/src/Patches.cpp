@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <string_view>
 
+#include <Windows.h>
+
 #include <xbyak/xbyak.h>
 
 namespace Patches
@@ -44,8 +46,134 @@ namespace Patches
 			"48 8B 48 08 "           // mov     rcx, [rax+8]
 			"C6 81 ?? ?? ?? ?? ?? "  // mov     byte ptr [rcx+disp], 1
 			"C3"sv;                  // retn
+		constexpr std::uint32_t BuffFXHookOffset = 16;  // 落在 mov byte ptr [rcx+disp32], 1 这条写脏标记指令
 
-		constexpr std::uint32_t BuffFXHookOffset = 16;
+		// ===================== G：widget 字符串池溢出断言 =====================
+		// AllocateWidgetString 把界面字符串写进一个固定 32KB（0x8000）的全局池，池满时触发
+		// "Out of widget string" 断言（gui.cpp:1276）。工会 / 英雄技能过多时池会耗尽。
+		// 池是 .data 里的静态数组，被唯一一条 `lea rcx,[rip]` 引用。把这条 lea 翻成 mov（同一 rip
+		// 位移，改为读取值），并在数组首 8 字节写入一个更大的堆缓冲区指针，再把容量上限一起抬高，
+		// 即可在不触碰游戏其余逻辑的前提下消除断言。
+		constexpr auto WidgetStringCapPattern =
+			"44 8B 05 ?? ?? ?? ?? "  // mov     r8d, [rip+disp]   s_widget_strings_allocation_index
+			"41 FF C0 "              // inc     r8d
+			"44 03 C7 "              // add     r8d, edi           + 源串长度
+			"41 81 F8 00 80 00 00 "  // cmp     r8d, 0x8000        <- 容量上限
+			"72 40"sv;               // jb      short 分配分支
+		constexpr auto WidgetStringLeaPattern =
+			"48 63 1D ?? ?? ?? ?? "  // movsxd  rbx, [rip+disp]     s_widget_strings_allocation_index
+			"48 8D 0D ?? ?? ?? ?? "  // lea     rcx, [rip+disp]     池基址（HOOK：翻转 0x8D->0x8B）
+			"48 03 D9"sv;            // add     rbx, rcx            rbx = 池基址 + 游标
+
+		constexpr std::uint32_t WidgetStringOriginalPoolSize = 0x8000;  // 原池：32KB 静态数组
+		constexpr std::uint32_t WidgetStringPoolSize = 0x100000;         // 新池 / 新容量上限：1MB
+
+		// 前置声明：本段 G 定位函数早于下方字节读取与特征码搜索助手定义，先行声明以保持自包含
+		template <class T>
+		T Read(const std::uint8_t* a_bytes) noexcept;
+		const std::uint8_t* Bytes(const Image& a_image, std::uint32_t a_rva, std::uint32_t a_size);
+		std::uint32_t FindOne(const Image& a_image, std::string_view a_pattern);
+
+		// 统计 .text 里把 a_target 当作 [rip+disp] 操作数的指令条数，用于确认池基址只被引用一次
+		std::uint32_t CountRipRefs(const Image& a_image, std::uint32_t a_target)
+		{
+			constexpr std::uint32_t Ops[] = { 0x8B, 0x8D, 0x89, 0x8A, 0x03, 0x2B, 0x23, 0x0B, 0xC7 };
+			std::uint32_t count = 0;
+			auto          rva = a_image.textBegin();
+			const auto    end = a_image.textEnd();
+			while (rva + 7 <= end) {
+				const auto* c = a_image.bytes(rva);
+				std::uint32_t p = 0;
+				if (c[0] >= 0x40 && c[0] <= 0x4F) {
+					if (rva + 8 > end) {
+						break;
+					}
+					p = 1;
+				}
+				bool  hit = false;
+				for (const auto op : Ops) {
+					if (c[p] != op) {
+						continue;
+					}
+					const auto modrm = c[p + 1];
+					if ((modrm & 0xC7) != 0x05) {
+						break;  // 不是 [rip]，长度至少 2
+					}
+					const auto disp = Read<std::int32_t>(c + p + 2);
+					const auto target = rva + p + 1 + 1 + 4 + static_cast<std::uint32_t>(disp);
+					if (target == a_target) {
+						++count;
+					}
+					hit = true;
+					break;
+				}
+				rva += hit ? (p + 1 + 1 + 4) : 1;
+			}
+			return count;
+		}
+
+		DirectPatch LocateWidgetString(const Image& a_image)
+		{
+			const auto cap = FindOne(a_image, WidgetStringCapPattern);
+			const auto lea = FindOne(a_image, WidgetStringLeaPattern);
+
+			// 两条特征码必须在同一函数内，且 lea 在 cap 之后
+			if (lea <= cap || lea - cap > 0x200) {
+				throw LocateError("widget string cap and pool lea are not in the same function");
+			}
+
+			const auto leaStart = lea + 7;  // "48 8D 0D" 起点
+			const auto* code = Bytes(a_image, leaStart, 7);
+			if (code[0] != 0x48 || code[1] != 0x8D || code[2] != 0x0D) {
+				throw LocateError("pool base load is not a rip-relative lea rcx");
+			}
+
+			const auto  disp = Read<std::int32_t>(code + 3);
+			const auto  bufferGlobalRva = leaStart + 7 + static_cast<std::uint32_t>(disp);
+			const auto  leaOpcodeRva = leaStart + 1;  // 0x8D 字节
+
+			// 紧随其前的 "48 63 1D disp32" 是 movsxd rbx, [rip+索引全局]，同样以 7 字节指令解出
+			const auto indexGlobalRva = lea + 7 + static_cast<std::uint32_t>(Read<std::int32_t>(Bytes(a_image, lea + 3, 4)));
+
+			if (CountRipRefs(a_image, bufferGlobalRva) != 1) {
+				throw LocateError("pool base is referenced by more than one instruction");
+			}
+
+			// 池基址必须落在可写的 .data 节内，且原 32KB 池完整位于该节，避免指向代码或越界
+			if (bufferGlobalRva < a_image.dataBegin() || bufferGlobalRva + WidgetStringOriginalPoolSize > a_image.dataEnd()) {
+				throw LocateError("pool base is not fully inside a writable data section");
+			}
+			if (indexGlobalRva < a_image.dataBegin() || indexGlobalRva + 4 > a_image.dataEnd()) {
+				throw LocateError("widget string index is not inside a writable data section");
+			}
+
+			const auto capImmRva = cap + 16;  // "44 8B 05.. / 41 FF C0 / 44 03 C7 / 41 81 F8" 之后才是 imm32 起点
+
+			DirectPatch patch;
+			patch.key = 'G';
+			patch.name = "widgetstring";
+			patch.leaOpcodeRva = leaOpcodeRva;
+			patch.capImmRva = capImmRva;
+			patch.bufferGlobalRva = bufferGlobalRva;
+			patch.indexGlobalRva = indexGlobalRva;
+			patch.bufferSize = WidgetStringPoolSize;
+			return patch;
+		}
+
+		// ===================== F：英雄技能位图遍历崩溃 =====================
+		// 工会 / 英雄页打开时，游戏按全局载入的技能位图基址逐 DWORD 查位，判定某技能是否可用。
+		// 当该全局被写成 -1（STL 失效迭代器哨兵，mod 英雄技能过多时触发）时，test [rdx], eax
+		// 直接解引用 -1 触发 AV。函数入口载入该基址，进入即校验其是否为合法用户态指针，
+		// 非法（0 / 负数 / 过低）时经真实 ret 安全返回 0（该技能位判定为“未命中”）。
+		// 注意：被覆盖的 mov 是 rip 相对寻址，不能在片段里原样重放，必须改为绝对地址载入。
+		constexpr auto SkillBitmapPattern =
+			"4C 8B 0D ?? ?? ?? ?? "  // mov     r9, [rip+disp]   技能计数 / 索引全局
+			"33 C9 "                 // xor     ecx, ecx
+			"48 8B 15 ?? ?? ?? ?? "  // mov     rdx, [rip+disp]  技能位图基址全局（HOOK 起点）
+			"41 B0 01 "              // mov     r8b, 1
+			"4D 85 C9 "              // test    r9, r9
+			"79 ??"sv;               // jns     short
+		constexpr std::uint32_t SkillBitmapHookOffset = 9;  // 相对 AOB 起点的偏移，落在 mov rdx,[rip]
 
 		constexpr std::uint32_t SectionHeaderSize = 40;
 		constexpr std::uint32_t FunctionBackLimit = 0x4000;
@@ -531,20 +659,110 @@ namespace Patches
 			return site;
 		}
 
-		// ===================== 汇总 =====================
-		struct Fix
-		{
+	// ===================== F：技能位图基址 -1 防御 =====================
+	Site TrySkillBitmap(const Image& a_image, std::uint32_t a_match)
+	{
+		// 只接受位于函数入口（前面是 int3 填充）的匹配；同一段逻辑会被内联进更大的函数，
+		// 那些副本前面是 ret / 代码，不是函数边界，不能作为干净的 hook 点。
+		if (*a_image.bytes(a_match - 1) != 0xCC) {
+			throw LocateError("skill bitmap match is not at a function boundary");
+		}
+
+		const auto hook = a_match + SkillBitmapHookOffset;
+		const auto* code = Bytes(a_image, hook, 7);
+		if (code[0] != 0x48 || code[1] != 0x8B || code[2] != 0x15) {
+			throw LocateError("skill bitmap base load is not a rip-relative mov rdx");
+		}
+
+		const auto disp = Read<std::int32_t>(code + 3);
+		const auto bitmapGlobalRva = hook + 7 + static_cast<std::uint32_t>(disp);
+
+		// 技能计数全局就在 mov rdx 前面的那条 mov r9 里，同样是 rip 相对
+		const auto* head = Bytes(a_image, a_match, 7);
+		if (head[0] != 0x4C || head[1] != 0x8B || head[2] != 0x0D) {
+			throw LocateError("skill count load is not a rip-relative mov r9");
+		}
+		const auto countDisp = Read<std::int32_t>(head + 3);
+		const auto countGlobalRva = a_match + 7 + static_cast<std::uint32_t>(countDisp);
+
+		const auto function = FunctionStart(a_image, hook);
+		const auto end = FunctionEnd(a_image, function);
+		if (hook <= function || hook + 7 >= end) {
+			throw LocateError("hook is outside the function");
+		}
+
+		// 确认函数体包含崩溃指令 test [rdx], eax（85 02）—— 这正是 minidump 里的崩点
+		bool hasCrash = false;
+		for (auto rva = hook; rva + 2 <= end && !hasCrash; ++rva) {
+			if (*a_image.bytes(rva) == 0x85 && *(a_image.bytes(rva) + 1) == 0x02) {
+				hasCrash = true;
+			}
+		}
+		if (!hasCrash) {
+			throw LocateError("function does not contain the skill-bit test that crashes");
+		}
+
+		// 用函数真实出口（末尾的 ret）作为安全返回点，对有无序言都安全
+		std::uint32_t exit = 0;
+		for (auto rva = end; rva > function; --rva) {
+			if (*a_image.bytes(rva - 1) == 0xC3) {
+				exit = rva - 1;
+				break;
+			}
+		}
+		if (!exit || exit <= hook) {
+			throw LocateError("function has no ret to return through");
+		}
+
+		Site site;
+		site.function = function;
+		site.hook = hook;
+		site.cover = 7;
+		site.exit = exit;
+		site.bitmapGlobalRva = bitmapGlobalRva;
+		site.countGlobalRva = countGlobalRva;
+		return site;
+	}
+
+	Site LocateSkillBitmap(const Image& a_image)
+	{
+		std::vector<Site> candidates;
+		for (const auto match : FindAll(a_image, SkillBitmapPattern)) {
+			try {
+				candidates.push_back(TrySkillBitmap(a_image, match));
+			} catch (const LocateError&) {
+				continue;
+			}
+		}
+
+		if (candidates.empty()) {
+			throw LocateError("no matching skill bitmap function");
+		}
+		if (candidates.size() == 1) {
+			return candidates.front();
+		}
+
+		// 仍有多个时（不应发生），取函数体最小的叶子函数，跳过内联进大函数的副本
+		std::sort(candidates.begin(), candidates.end(),
+			[](const Site& a, const Site& b) { return (a.exit - a.function) < (b.exit - b.function); });
+		return candidates.front();
+	}
+
+	// ===================== 汇总 =====================
+	struct Fix
+	{
 			char        key;
 			const char* name;
 			Site (*locate)(const Image&);
 		};
 
-		constexpr std::array<Fix, 5> Fixes{ {
+		constexpr std::array<Fix, 6> Fixes{ {
 			{ 'A', "heirloom", LocateHeirloom },
 			{ 'B', "no_owner", LocateNoOwner },
 			{ 'C', "part2", LocateDirtyFlag },
 			{ 'D', "teleport", LocateTeleport },
 			{ 'E', "bufffx", LocateBuffFX },
+			{ 'F', "skillbitmap", LocateSkillBitmap },
 		} };
 
 		// 按字节扫描 .text 里的相对跳转。有跳转落在被覆盖指令的中间时不能打补丁
@@ -616,6 +834,9 @@ namespace Patches
 					break;
 				case 'E':
 					GuardBuffFX();
+					break;
+				case 'F':
+					GuardSkillBitmap();
 					break;
 				default:
 					throw std::logic_error("unknown fix");
@@ -694,6 +915,28 @@ namespace Patches
 				ret();
 			}
 
+			// 入口校验技能位图基址：被覆盖的 mov 是 rip 相对寻址，不能在片段里原样重放，
+			// 改为按绝对地址读取全局。基址非法（0 / 负数 / 过低）时经真实 ret 返回 0。
+			void GuardSkillBitmap()
+			{
+				Xbyak::Label done;
+
+				const auto global = Absolute(_site.bitmapGlobalRva);
+				mov(rax, reinterpret_cast<std::uintptr_t>(global));
+				mov(rdx, qword[rax]);  // rdx = 技能位图基址，等价于被覆盖的 mov rdx,[rip+disp]
+
+				test(rdx, rdx);
+				js(done);  // 符号位为 1：负数 / 用户空间之上的坏地址（含 -1 哨兵）
+				cmp(rdx, MinValidAddress);
+				jb(done);  // 0 或过低地址：无效
+
+				JumpBack();  // 合法：从 hook+cover 继续原函数
+
+				L(done);
+				xor_(eax, eax);                 // 返回 0（该技能位判定为“未命中”）
+				jmp(Absolute(_site.exit));       // 经真实出口安全返回
+			}
+
 			const Site&  _site;
 			const Image& _image;
 		};
@@ -715,7 +958,9 @@ namespace Patches
 			if (SectionName(header) == ".text"sv) {
 				_textBegin = Read<std::uint32_t>(header + 12);
 				_textEnd = _textBegin + Read<std::uint32_t>(header + 8);
-				break;
+			} else if (SectionName(header) == ".data"sv) {
+				_dataBegin = Read<std::uint32_t>(header + 12);
+				_dataEnd = _dataBegin + Read<std::uint32_t>(header + 8);
 			}
 		}
 	}
@@ -747,6 +992,15 @@ namespace Patches
 			}
 		}
 
+		try {
+			auto direct = LocateWidgetString(a_image);
+			direct.key = 'G';
+			direct.name = "widgetstring";
+			plan.directs.push_back(direct);
+		} catch (const LocateError& e) {
+			plan.errors.push_back(std::format("G (widgetstring): {}", e.what()));
+		}
+
 		if (plan.errors.empty()) {
 			if (auto error = FindJumpIntoSites(a_image, plan.sites); !error.empty()) {
 				plan.errors.push_back(std::move(error));
@@ -756,9 +1010,46 @@ namespace Patches
 		// 不完整的修复没有意义，任何一处失败都不打补丁
 		if (!plan.errors.empty()) {
 			plan.sites.clear();
+			plan.directs.clear();
 		}
 
 		return plan;
+	}
+
+	void ApplyDirect(const DirectPatch& a_patch, std::uintptr_t a_base, void* a_newBuffer)
+	{
+		const auto write = [&](void* a_address, const void* a_source, std::size_t a_size) {
+			DWORD old = 0;
+			::VirtualProtect(a_address, a_size, PAGE_EXECUTE_READWRITE, &old);
+			std::memcpy(a_address, a_source, a_size);
+			::FlushInstructionCache(::GetCurrentProcess(), a_address, a_size);
+			::VirtualProtect(a_address, a_size, old, &old);
+		};
+
+		// 0) 搬迁旧池里已经写好的内容：安装时机未必早于第一次分配，索引非零时若不搬，
+		//    翻转后 rcx 会指向旧池里的字符串字节而不是合法缓冲区。
+		const auto index = *reinterpret_cast<const std::uint32_t*>(a_base + a_patch.indexGlobalRva);
+		if (index != 0) {
+			// 索引超界（大于原池）说明定位到了错误的全局，宁可放弃也不做越界读取
+			if (index > WidgetStringOriginalPoolSize) {
+				throw std::runtime_error("widget string index is larger than the original pool");
+			}
+			std::memcpy(a_newBuffer, reinterpret_cast<const void*>(a_base + a_patch.bufferGlobalRva), index);
+		}
+
+		// 1) 把旧数组首 8 字节改成新缓冲区的指针
+		write(reinterpret_cast<void*>(a_base + a_patch.bufferGlobalRva),
+			std::addressof(a_newBuffer), sizeof(a_newBuffer));
+
+		// 2) lea rcx,[rip] -> mov rcx,[rip]：同一 rip 位移，从“取地址”变成“取值”
+		const std::uint8_t mov = 0x8B;
+		write(reinterpret_cast<void*>(a_base + a_patch.leaOpcodeRva),
+			std::addressof(mov), sizeof(mov));
+
+		// 3) 抬高容量上限：cmp r8d, 0x8000 -> cmp r8d, bufferSize
+		const std::uint32_t newCap = a_patch.bufferSize;
+		write(reinterpret_cast<void*>(a_base + a_patch.capImmRva),
+			std::addressof(newCap), sizeof(newCap));
 	}
 
 	std::size_t Emit(const Site& a_site, const Image& a_image, void* a_memory)
