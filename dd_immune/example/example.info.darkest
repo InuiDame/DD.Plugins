@@ -1,0 +1,20 @@
+// 职业免疫示例（真实块，与 DDShield 的 shield: 块同款）。
+// DLL 读取原始文本；游戏会忽略无法识别的合法块（标识符 + 冒号），**不会**截断后续块，
+// 因此真实块可以和 resistances / combat_skill 等并列写在顶层，不需要放在注释里。
+// 冒号后支持两种写法：.kill true / .control false / .capture 1 / .capture 0，
+// 以及裸 token kill / control / capture（等价于 true）；显式 false / 0 清除此前置位。
+//
+// 文件名/目录名必须是职业名：heroes/<name>/<name>.info.darkest 或
+// monsters/<name>/<name>.info.darkest。示例里 <name> = example_class。
+// DLL 会登记 Hash(name) / Hash("hero_class_name_"+name) / Hash("str_monstername_"+name) 三种变体。
+
+immune: .kill true .control true .capture true
+immune: kill, capture
+
+resistances:
+   stun: 0
+   deathblow: 0
+
+combat_skill: demo_skill
+   .id "demo_skill"
+   .type "melee"

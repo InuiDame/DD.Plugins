@@ -1,0 +1,27 @@
+{
+  // 免疫 buff 示例：三个字段都演示。
+  // 游戏自身忽略未知字段；DLL 只认布尔 true/false，缺省 false。
+  // 把这些放进你的数据 MOD 的 shared/buffs/*.buffs.json，或 dlc / workshop / mods 下任意 *.buffs.json。
+  "buffs": [
+    {
+      "id": "immune_all_example",
+      "stat_type": "status",
+      "immune_kill": true,
+      "immune_control": true,
+      "immune_capture": true
+    },
+    {
+      "id": "immune_kill_only_example",
+      "stat_type": "status",
+      "immune_kill": true
+    },
+    {
+      // 显式 false：按优先级覆盖低优先级 MOD 里同 id 的 true。
+      "id": "immune_none_example",
+      "stat_type": "status",
+      "immune_kill": false,
+      "immune_control": false,
+      "immune_capture": false
+    }
+  ]
+}
