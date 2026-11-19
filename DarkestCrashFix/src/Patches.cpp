@@ -1,4 +1,5 @@
-// 修复方案来自局师傅的《暗黑地牢》64 位主程序通用修复补丁工具包 v2，这里改为在内存中打补丁。
+// 修复方案来自局师傅的《暗黑地牢》64 位主程序通用修复补丁工具包 v3，这里改为在内存中打补丁。
+// 工具包的 A~E 对应这里的 A~E（跳板补丁），工具包的 F（BuffFX 上游钳容）对应这里的 H。
 #include "Patches.h"
 
 #include <algorithm>
@@ -68,6 +69,72 @@ namespace Patches
 		constexpr std::uint32_t WidgetStringOriginalPoolSize = 0x8000;  // 原池：32KB 静态数组
 		constexpr std::uint32_t WidgetStringPoolSize = 0x100000;         // 新池 / 新容量上限：1MB
 
+		// ===================== H：BuffFX 上游防扩容搬家 =====================
+		// ActorFx::entries 是 std::vector<ActiveFxEntry>（元素 0x18 字节），从容量 0 起步、按 1.5 倍增长。
+		// 每次扩容都要搬家，ActorFx::Update 之前注册进来的「&entries[i]」随即变成悬垂指针——这是 E 点
+		// 所兜底的那类脏标记写入崩溃的上游根源。这里改上游：把 _Emplace_reallocate 算出的新容量下限
+		// 钳到 256（6144 B = 0x1800），首次扩容就一次拿到足够容量，单次 Update 的注册循环里不再扩容；
+		// 超过 256 个之后仍会按 1.5 倍扩容，所以 E 点的下游守卫必须保留，H 不能取代它。
+		//
+		// 该实例与其它 vector<0x18> 共用 COMDAT，所以用两把锁定位：ActorFx::Update 内唯一的 push_back
+		// 慢路径 call 作上游锚点，call 目标函数内的 37 字节容量块作下游锁，并要求完整容量块在整个
+		// .text 里只命中一处。两者一致才动手，任何一环不符就整体放弃。
+		//
+		// 注意容量块本身并不唯一：any vector<T>::_Emplace_reallocate 的「1.5 倍增长」都是同样的
+		// 37 字节，全程序能命中 23 处。真正把它区别开来的是紧随其后那条 0x18 步长后缀
+		// （lea rax,[rsi+rsi*2] / lea r13,[rax*8]），所以特征码把后缀一起带上，只认 0x18 这一个实例。
+		constexpr auto BuffFXCapPattern =
+			"48 8B C6 "           // mov     rax, rsi          ; max_size
+			"48 2B C2 "           // sub     rax, rdx          ; max_size - cap/2
+			"48 3B C8 "           // cmp     rcx, rax          ; cap
+			"77 1A "              // ja      capacity          ; 1.5 倍会溢出，退回 max_size
+			"48 8D 04 0A "        // lea     rax, [rdx+rcx]    ; 1.5 * cap
+			"49 8B CE "           // mov     rcx, r14          ; size + 1
+			"49 3B C6 "           // cmp     rax, r14
+			"48 0F 43 C8 "        // cmovae  rcx, rax          ; max(1.5cap, size+1)
+			"48 3B CE "           // cmp     rcx, rsi
+			"0F 87 ?? ?? ?? ?? "  // ja      length_error
+			"48 8B F1 "           // mov     rsi, rcx          ; 新容量
+			"48 8D 04 76 "        // lea     rax, [rsi+rsi*2]  ; 容量 * 3
+			"4C 8D 2C C5 00 00 00 00"sv;  // lea r13, [rax*8]  ; 元素 0x18 字节
+		constexpr std::uint32_t BuffFXCapSize = 37;         // 被替换字节块的长度
+		constexpr std::uint32_t BuffFXStrideSize = 12;      // 块后的 0x18 步长后缀
+
+		// 已应用过 H 的形态（片段前 14 字节），只用于给出明确诊断，不参与正常定位
+		constexpr auto BuffFXCapAppliedPattern = "48 8D 04 0A 49 8B F6 49 3B C6 48 0F 43 F0"sv;
+
+		// 上游锚点：push_back 慢路径里「复制新元素 -> 推进 _Mylast -> 调用 _Emplace_reallocate」的形态。
+		// add qword [..], 18h 两种寻址宽度长度不同，mov rcx 也有 rdi / r12 两种，故拆段匹配。
+		constexpr auto BuffFXPushHead =
+			"0F 10 44 24 ?? "     // movups  xmm0, [rsp+?]
+			"0F 11 02 "           // movups  [rdx], xmm0
+			"F2 0F 10 4C 24 ?? "  // movsd   xmm1, [rsp+?]
+			"F2 0F 11 4A 10"sv;   // movsd   [rdx+10h], xmm1
+		constexpr auto BuffFXPushAddShort = "48 83 47 08 18"sv;          // add qword [rdi+8], 18h
+		constexpr auto BuffFXPushAddLong = "48 83 87 08 01 00 00 18"sv;  // add qword [rdi+108h], 18h
+		constexpr std::uint32_t BuffFXPushHeadSize = 19;
+		constexpr std::uint32_t BuffFXPushCallOffset = 10;  // 「EB 0D + lea r8 + mov rcx」之后是 call
+
+		// H 的原地片段：与容量块等长（37 字节），rsi = max(1.5 * cap, size + 1, BuffFXMinCapacity)，
+		// 之后照原样进入「容量 * 0x18 = 字节数」的后缀并调用游戏原版 operator new。
+		// 与原块相比去掉了两段 max_size 溢出检查——正常容量范围内不可达，代价换来容量下限。
+		constexpr std::array<std::uint8_t, BuffFXCapSize> BuffFXCapFragment{ {
+			0x48, 0x8D, 0x04, 0x0A,                                      // lea     rax, [rdx+rcx]  ; 1.5 * cap
+			0x49, 0x8B, 0xF6,                                            // mov     rsi, r14        ; size + 1
+			0x49, 0x3B, 0xC6,                                            // cmp     rax, r14
+			0x48, 0x0F, 0x43, 0xF0,                                      // cmovae  rsi, rax        ; max(1.5cap, size+1)
+			0xB8,
+			static_cast<std::uint8_t>(BuffFXMinCapacity & 0xFF),         // mov     eax, 容量下限
+			static_cast<std::uint8_t>((BuffFXMinCapacity >> 8) & 0xFF),
+			static_cast<std::uint8_t>((BuffFXMinCapacity >> 16) & 0xFF),
+			static_cast<std::uint8_t>((BuffFXMinCapacity >> 24) & 0xFF),
+			0x48, 0x3B, 0xF0,                                            // cmp     rsi, rax
+			0x48, 0x0F, 0x42, 0xF0,                                      // cmovb   rsi, rax        ; max(..., 容量下限)
+			0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,        // 9 字节 nop
+			0x66, 0x90,                                                  // 2 字节 nop，合计 37 字节
+		} };
+		static_assert(BuffFXMinCapacity == 256, "the 37-byte block only fits a 256 capacity floor");
+	
 		// 前置声明：本段 G 定位函数早于下方字节读取与特征码搜索助手定义，先行声明以保持自包含
 		template <class T>
 		T Read(const std::uint8_t* a_bytes) noexcept;
@@ -200,9 +267,15 @@ namespace Patches
 			return { name, ::strnlen(name, 8) };
 		}
 
+		bool InText(const Image& a_image, std::uint32_t a_rva, std::uint32_t a_size) noexcept
+		{
+			return a_rva >= a_image.textBegin() && a_rva < a_image.textEnd() && a_size <= a_image.textEnd() - a_rva;
+		}
+
 		const std::uint8_t* Bytes(const Image& a_image, std::uint32_t a_rva, std::uint32_t a_size)
 		{
-			if (a_rva < a_image.textBegin() || a_rva + a_size > a_image.textEnd()) {
+			// 不能写成 a_rva + a_size > textEnd：a_rva 接近 4GB 时会回绕
+			if (!InText(a_image, a_rva, a_size)) {
 				throw LocateError(std::format("{:X}+{:X} is outside .text", a_rva, a_size));
 			}
 
@@ -277,6 +350,25 @@ namespace Patches
 			}
 
 			return hits.front();
+		}
+
+		// 在指定位置按特征码匹配（不扫描全段），用于「固定头 + 变长中段 + 固定尾」的分段匹配
+		bool MatchesAt(const Image& a_image, std::uint32_t a_rva, std::string_view a_pattern)
+		{
+			const auto pattern = ParsePattern(a_pattern);
+			const auto size = static_cast<std::uint32_t>(pattern.size());
+			if (!InText(a_image, a_rva, size)) {
+				return false;
+			}
+
+			const auto* code = a_image.bytes(a_rva);
+			for (std::uint32_t i = 0; i < size; ++i) {
+				if (pattern[i] >= 0 && pattern[i] != code[i]) {
+					return false;
+				}
+			}
+
+			return true;
 		}
 
 		// 函数之间以 int3 填充对齐，填充段之后的第一个字节就是函数入口
@@ -748,6 +840,114 @@ namespace Patches
 		return candidates.front();
 	}
 
+	// ===================== H：BuffFX 上游防扩容搬家 =====================
+	// 上游锚点唯一 + 下游 37 字节容量块唯一 + 周边形态自洽，三者同时成立才动手。
+	std::optional<std::uint32_t> MatchBuffFXPush(const Image& a_image, std::uint32_t a_rva)
+	{
+		if (!MatchesAt(a_image, a_rva, BuffFXPushHead)) {
+			return std::nullopt;
+		}
+
+		// add qword [rdi+8], 18h 与 add qword [rdi+108h], 18h 两种寻址宽度，长度不同
+		auto p = a_rva + BuffFXPushHeadSize;
+		if (MatchesAt(a_image, p, BuffFXPushAddShort)) {
+			p += 5;
+		} else if (MatchesAt(a_image, p, BuffFXPushAddLong)) {
+			p += 8;
+		} else {
+			return std::nullopt;
+		}
+
+		// jmp short +0D / lea r8, [rsp+?] / mov rcx, (rdi|r12) / call rel32
+		if (!InText(a_image, p, 15)) {
+			return std::nullopt;
+		}
+
+		const auto* c = a_image.bytes(p);
+		if (c[0] != 0xEB || c[1] != 0x0D || c[2] != 0x4C || c[3] != 0x8D || c[4] != 0x44 || c[5] != 0x24) {
+			return std::nullopt;
+		}
+
+		const bool moveRcx = (c[7] == 0x48 && c[8] == 0x8B && c[9] == 0xCF) ||
+			(c[7] == 0x49 && c[8] == 0x8B && c[9] == 0xCC);
+		if (!moveRcx || c[10] != 0xE8) {
+			return std::nullopt;
+		}
+
+		return p + BuffFXPushCallOffset;
+	}
+
+	InPlacePatch LocateBuffFXCap(const Image& a_image)
+	{
+		// 锁 1：上游锚点在 .text 里必须只有一处
+		std::vector<std::uint32_t> calls;
+		for (const auto rva : FindAll(a_image, BuffFXPushHead)) {
+			if (const auto call = MatchBuffFXPush(a_image, rva)) {
+				calls.push_back(*call);
+			}
+		}
+		if (calls.size() != 1) {
+			throw LocateError(std::format("{} buff FX push anchor(s) matched, expected exactly 1", calls.size()));
+		}
+
+		const auto callRva = calls.front();
+		const auto emplace = callRva + 5 + static_cast<std::uint32_t>(Read<std::int32_t>(Bytes(a_image, callRva + 1, 4)));
+
+		// _Emplace_reallocate 以 int3 填充对齐，入口前一字节必须是 0xCC
+		if (!InText(a_image, emplace - 1, 2)) {
+			throw LocateError(std::format("call target {:X} is outside .text", emplace));
+		}
+		if (*Bytes(a_image, emplace - 1, 1) != 0xCC) {
+			throw LocateError(std::format("call target {:X} is not a function entry", emplace));
+		}
+
+		const auto end = FunctionEnd(a_image, emplace);
+
+		// 锁 2：容量块在全 .text 里必须只有一处，且落在锚点函数体内
+		const auto hits = FindAll(a_image, BuffFXCapPattern);
+		if (hits.size() != 1) {
+			if (hits.empty() && FindAll(a_image, BuffFXCapAppliedPattern).size() == 1) {
+				throw LocateError("the BuffFX capacity block is already clamped");
+			}
+			throw LocateError(std::format("{} buff FX capacity block(s) matched, expected exactly 1", hits.size()));
+		}
+
+		const auto hook = hits.front();
+		if (hook <= emplace || hook + BuffFXCapSize + BuffFXStrideSize >= end) {
+			throw LocateError(std::format("capacity block {:X} is outside the anchor function {:X}..{:X}", hook, emplace, end));
+		}
+
+		// 锁 3：块内那条 ja 的目标是 max_size 溢出出口，必须仍落在同一函数体内
+		const auto* ja = Bytes(a_image, hook + 28, 6);
+		if (ja[0] != 0x0F || ja[1] != 0x87) {
+			throw LocateError("the capacity block does not end with a ja to the overflow exit");
+		}
+		const auto overflow = hook + 34 + static_cast<std::uint32_t>(Read<std::int32_t>(ja + 2));
+		if (overflow <= emplace || overflow > end) {
+			throw LocateError(std::format("overflow exit {:X} is outside the anchor function", overflow));
+		}
+
+		// 锁 4：块后紧接游戏原版 operator new 的调用序列（0x18 步长后缀已含在特征码里）
+		if (!MatchesAt(a_image, hook + BuffFXCapSize + BuffFXStrideSize, "49 8B CD E8")) {
+			throw LocateError("the operator new call sequence after the capacity block does not match");
+		}
+
+		const auto allocSite = hook + BuffFXCapSize + BuffFXStrideSize + 3;
+		if (!InText(a_image, allocSite + 1, 4)) {
+			throw LocateError("the operator new call is truncated");
+		}
+		const auto allocTarget = allocSite + 5 + static_cast<std::uint32_t>(Read<std::int32_t>(Bytes(a_image, allocSite + 1, 4)));
+		if (!InText(a_image, allocTarget, 1)) {
+			throw LocateError(std::format("operator new target {:X} is outside .text", allocTarget));
+		}
+
+		InPlacePatch patch;
+		patch.function = emplace;
+		patch.hook = hook;
+		patch.cover = BuffFXCapSize;
+		return patch;
+	}
+
 	// ===================== 汇总 =====================
 	struct Fix
 	{
@@ -765,13 +965,21 @@ namespace Patches
 			{ 'F', "skillbitmap", LocateSkillBitmap },
 		} };
 
+		// 被改写的字节区间。跳板点与原地改写点都要参与「跳转不得落入覆盖区中部」的检查
+		struct Span
+		{
+			char          key;
+			std::uint32_t hook;
+			std::uint32_t cover;
+		};
+
 		// 按字节扫描 .text 里的相对跳转。有跳转落在被覆盖指令的中间时不能打补丁
-		std::string FindJumpIntoSites(const Image& a_image, const std::vector<Site>& a_sites)
+		std::string FindJumpIntoSites(const Image& a_image, const std::vector<Span>& a_spans)
 		{
 			const auto check = [&](std::uint32_t a_source, std::int64_t a_target) -> std::string {
-				for (const auto& site : a_sites) {
-					if (a_target > site.hook && a_target < static_cast<std::int64_t>(site.hook) + site.cover) {
-						return std::format("{}: jump from {:X} lands inside the patched bytes at {:X}", site.key, a_source, a_target);
+				for (const auto& span : a_spans) {
+					if (a_target > span.hook && a_target < static_cast<std::int64_t>(span.hook) + span.cover) {
+						return std::format("{}: jump from {:X} lands inside the patched bytes at {:X}", span.key, a_source, a_target);
 					}
 				}
 				return {};
@@ -1001,8 +1209,26 @@ namespace Patches
 			plan.errors.push_back(std::format("G (widgetstring): {}", e.what()));
 		}
 
+		try {
+			auto inplace = LocateBuffFXCap(a_image);
+			inplace.key = 'H';
+			inplace.name = "bufffx_cap";
+			plan.inplaces.push_back(inplace);
+		} catch (const LocateError& e) {
+			plan.errors.push_back(std::format("H (bufffx_cap): {}", e.what()));
+		}
+
 		if (plan.errors.empty()) {
-			if (auto error = FindJumpIntoSites(a_image, plan.sites); !error.empty()) {
+			std::vector<Span> spans;
+			spans.reserve(plan.sites.size() + plan.inplaces.size());
+			for (const auto& site : plan.sites) {
+				spans.push_back({ site.key, site.hook, site.cover });
+			}
+			for (const auto& patch : plan.inplaces) {
+				spans.push_back({ patch.key, patch.hook, patch.cover });
+			}
+
+			if (auto error = FindJumpIntoSites(a_image, spans); !error.empty()) {
 				plan.errors.push_back(std::move(error));
 			}
 		}
@@ -1011,6 +1237,7 @@ namespace Patches
 		if (!plan.errors.empty()) {
 			plan.sites.clear();
 			plan.directs.clear();
+			plan.inplaces.clear();
 		}
 
 		return plan;
@@ -1019,8 +1246,13 @@ namespace Patches
 	void ApplyDirect(const DirectPatch& a_patch, std::uintptr_t a_base, void* a_newBuffer)
 	{
 		const auto write = [&](void* a_address, const void* a_source, std::size_t a_size) {
+			// 保护失败时页面仍是只读，memcpy 会直接 AV；DllMain 里没人能接住 SEH，所以先抛
 			DWORD old = 0;
-			::VirtualProtect(a_address, a_size, PAGE_EXECUTE_READWRITE, &old);
+			if (!::VirtualProtect(a_address, a_size, PAGE_EXECUTE_READWRITE, &old)) {
+				throw std::runtime_error(std::format("cannot unprotect {:p} ({} bytes, error {})",
+					a_address, a_size, ::GetLastError()));
+			}
+
 			std::memcpy(a_address, a_source, a_size);
 			::FlushInstructionCache(::GetCurrentProcess(), a_address, a_size);
 			::VirtualProtect(a_address, a_size, old, &old);
@@ -1056,6 +1288,50 @@ namespace Patches
 	{
 		const Fragment fragment{ a_site, a_image, a_memory };
 		return fragment.getSize();
+	}
+
+	std::size_t EmitInPlace(const InPlacePatch& a_patch, void* a_memory)
+	{
+		switch (a_patch.key) {
+		case 'H':
+			static_assert(BuffFXCapFragment.size() == BuffFXCapSize, "the BuffFX cap fragment must be 37 bytes");
+			if (a_patch.cover != BuffFXCapFragment.size()) {
+				throw std::logic_error("the BuffFX cap patch must cover exactly 37 bytes");
+			}
+
+			std::memcpy(a_memory, BuffFXCapFragment.data(), BuffFXCapFragment.size());
+			return BuffFXCapFragment.size();
+		default:
+			throw std::logic_error("unknown in-place fix");
+		}
+	}
+
+	void ApplyInPlace(const InPlacePatch& a_patch, std::uintptr_t a_base)
+	{
+		std::array<std::uint8_t, BuffFXCapSize> bytes{};
+		const auto size = EmitInPlace(a_patch, bytes.data());
+		if (size != a_patch.cover) {
+			throw std::runtime_error(std::format("in-place fragment of {} is {} bytes, expected {}",
+				a_patch.key, size, a_patch.cover));
+		}
+
+		// 与其它补丁一样在安装阶段（DllMain）写入，此时还没有别线程执行游戏代码。
+		// 37 字节可能跨页，但 .text 全段同属性，恢复首页的旧属性即可。
+		auto* const address = reinterpret_cast<void*>(a_base + a_patch.hook);
+		DWORD       old = 0;
+		if (!::VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &old)) {
+			throw std::runtime_error(std::format("cannot unprotect the in-place patch site of {} (error {})",
+				a_patch.key, ::GetLastError()));
+		}
+
+		std::memcpy(address, bytes.data(), size);
+		::FlushInstructionCache(::GetCurrentProcess(), address, size);
+		if (!::VirtualProtect(address, size, old, &old)) {
+			// 字节已经写进去了，这里只能如实报告：页面停在可写状态，但补丁本身是有效的
+			throw std::runtime_error(std::format(
+				"in-place patch of {} was written but its page protection could not be restored (error {})",
+				a_patch.key, ::GetLastError()));
+		}
 	}
 
 	std::vector<std::uint8_t> MakeJump(const Site& a_site, const Image& a_image, const void* a_fragment)

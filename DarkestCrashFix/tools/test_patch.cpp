@@ -4,6 +4,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -106,6 +107,13 @@ namespace
 	{
 		const auto function = reinterpret_cast<SetDirty_t>(a_image.base() + a_site.function);
 		const auto offset = *reinterpret_cast<const std::int32_t*>(a_image.bytes(a_site.hook) + 2);
+
+		// 定位规则允许 0 <= offset < 0x10000，但下面两个桩只有 0x100 字节；越界会踩到栈上别的对象，
+		// 而且断言可能照样通过，所以先明确拒绝
+		Check(offset >= 0 && offset < 0x100, "E: dirty flag offset fits the test harness");
+		if (offset < 0 || offset >= 0x100) {
+			return;
+		}
 
 		Chain chain;
 		Check(Faulted(function, chain.Prepare(nullptr)), "unpatched: null target faults");
@@ -263,6 +271,132 @@ namespace
 		*bitmapGlobal = reinterpret_cast<std::uint64_t>(buffer);
 		Check(!FaultedFn(function), "patched: valid bitmap returns without fault");
 	}
+
+	// H：BuffFX 上游钳容。片段是 37 字节固定机器码，不引用任何地址，因此可以放进独立缓冲区
+	// 直接执行，验证它算出的新容量，而不必真的去调用游戏的 _Emplace_reallocate。
+	void TestBuffFXCap(const Patches::InPlacePatch& a_patch, const Patches::Image& a_image, Mapping& a_mapping)
+	{
+		std::printf("H hook=%x cover=%u\n", a_patch.hook, a_patch.cover);
+
+		Check(a_patch.cover == 37, "H: capacity block is 37 bytes");
+		Check(a_patch.function != 0 && a_patch.function < a_patch.hook, "H: capacity block is inside its anchor function");
+
+		// 原始形态：块首是 mov rax, rsi（rsi = max_size），末尾是 mov rsi, rcx
+		const auto* original = a_image.bytes(a_patch.hook);
+		Check(original[0] == 0x48 && original[1] == 0x8B && original[2] == 0xC6, "H: block starts with mov rax, rsi");
+		Check(original[34] == 0x48 && original[35] == 0x8B && original[36] == 0xF1, "H: block ends with mov rsi, rcx");
+
+		std::uint8_t fragment[64]{};
+		const auto   size = Patches::EmitInPlace(a_patch, fragment);
+		Check(size == a_patch.cover, "H: fragment is exactly as long as the block it replaces");
+
+		// 片段必须与工具包 build_min_cap_patch(256) 逐字节一致，避免后续改动悄悄偏离参考实现
+		const std::uint8_t reference[37] = {
+			0x48, 0x8D, 0x04, 0x0A, 0x49, 0x8B, 0xF6, 0x49, 0x3B, 0xC6, 0x48, 0x0F, 0x43, 0xF0,
+			0xB8, 0x00, 0x01, 0x00, 0x00, 0x48, 0x3B, 0xF0, 0x48, 0x0F, 0x42, 0xF0,
+			0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x90,
+		};
+		Check(std::memcmp(fragment, reference, sizeof(reference)) == 0, "H: fragment matches the toolkit's 37-byte clamp");
+
+		// 独立执行片段：按 _Emplace_reallocate 的现场摆好 rsi（max_size）、rdx（capacity）、
+		// rcx（capacity/2）、r14（size+1），读完 rsi 就返回。
+		auto* scratch = static_cast<std::uint8_t*>(::VirtualAlloc(nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+		if (!scratch) {
+			Check(false, "H: scratch page allocated");
+			return;
+		}
+
+		alignas(16) static std::uint64_t s_capacity = 0;
+
+		const auto putU64 = [](std::uint8_t* a_p, std::uint64_t a_value) {
+			std::memcpy(a_p, std::addressof(a_value), 8);
+			return a_p + 8;
+		};
+
+		const auto run = [&](std::uint64_t a_capacity, std::uint64_t a_size) -> std::uint64_t {
+			std::uint8_t* p = scratch;
+			*p++ = 0x56;                                                   // push rsi
+			*p++ = 0x41; *p++ = 0x56;                                      // push r14
+			*p++ = 0x48; *p++ = 0xBE; p = putU64(p, 0x0AAAAAAAAAAAAAAAull);  // mov rsi, max_size
+			*p++ = 0x48; *p++ = 0xBA; p = putU64(p, a_capacity);            // mov rdx, capacity
+			*p++ = 0x48; *p++ = 0x89; *p++ = 0xD1;                          // mov rcx, rdx
+			*p++ = 0x48; *p++ = 0xD1; *p++ = 0xE9;                          // shr rcx, 1
+			*p++ = 0x49; *p++ = 0xBE; p = putU64(p, a_size + 1);            // mov r14, size + 1
+			std::memcpy(p, fragment, size);
+			p += size;
+			*p++ = 0x48; *p++ = 0xB8; p = putU64(p, reinterpret_cast<std::uint64_t>(std::addressof(s_capacity)));  // mov rax, &out
+			*p++ = 0x48; *p++ = 0x89; *p++ = 0x30;                          // mov [rax], rsi
+			*p++ = 0x41; *p++ = 0x5E;                                      // pop r14
+			*p++ = 0x5E;                                                   // pop rsi
+			*p++ = 0xC3;                                                   // ret
+
+			::FlushInstructionCache(::GetCurrentProcess(), scratch, static_cast<std::size_t>(p - scratch));
+			__try {
+				reinterpret_cast<void (*)()>(scratch)();
+			} __except (EXCEPTION_EXECUTE_HANDLER) {
+				return 0;
+			}
+			return s_capacity;
+		};
+
+		struct Case
+		{
+			std::uint64_t capacity;
+			std::uint64_t size;
+			std::uint64_t want;
+			const char*   what;
+		};
+
+		const Case cases[] = {
+			{ 0, 0, 256, "an empty vector jumps straight to 256" },
+			{ 0, 1, 256, "capacity 0 with one element jumps to 256" },
+			{ 1, 1, 256, "capacity 1 jumps straight to 256" },
+			{ 100, 100, 256, "1.5x below the floor is raised to 256" },
+			{ 170, 170, 256, "1.5x of 170 stays under the floor" },
+			{ 171, 171, 256, "1.5x of 171 reaches the floor exactly" },
+			{ 172, 172, 258, "1.5x just above the floor is kept" },
+			{ 200, 200, 300, "1.5x above the floor is kept" },
+			{ 256, 300, 384, "growth from the floor is unchanged" },
+			{ 1000, 5000, 5001, "a larger new size wins over 1.5x" },
+			{ 1, 5000, 5001, "a larger new size wins over the floor" },
+		};
+
+		for (const auto& c : cases) {
+			const auto got = run(c.capacity, c.size);
+			const char* name = c.what;
+			Check(got == c.want && got >= c.size + 1, name);
+		}
+
+		// 落地：写到映射映像上必须一字不差，并且再定位时必须报「已打过」
+		const std::uint8_t saved[37] = { original[0], original[1], original[2], original[3], original[4], original[5],
+			original[6], original[7], original[8], original[9], original[10], original[11], original[12], original[13],
+			original[14], original[15], original[16], original[17], original[18], original[19], original[20], original[21],
+			original[22], original[23], original[24], original[25], original[26], original[27], original[28], original[29],
+			original[30], original[31], original[32], original[33], original[34], original[35], original[36] };
+
+		Patches::ApplyInPlace(a_patch, a_image.base());
+		Check(std::memcmp(a_mapping.base + a_patch.hook, fragment, size) == 0, "H: ApplyInPlace writes the fragment");
+
+		const auto applied = Patches::Locate(a_image);
+		Check(applied.sites.empty() && applied.directs.empty() && applied.inplaces.empty() &&
+				applied.errors.size() == 1 && applied.errors.front().starts_with("H ("),
+			"H: a clamped block is reported instead of patched twice");
+
+		// 回滚，后续的定位测试仍然要看到原始字节
+		std::memcpy(a_mapping.base + a_patch.hook, saved, sizeof(saved));
+		::FlushInstructionCache(::GetCurrentProcess(), a_mapping.base + a_patch.hook, sizeof(saved));
+		Check(std::memcmp(a_image.bytes(a_patch.hook), saved, sizeof(saved)) == 0, "H: image is restored after the in-place test");
+
+		// 反向：块内改一个字节，H 必须定位失败，而一处失败就等于整体不打补丁
+		auto* const block = a_mapping.base + a_patch.hook;
+		block[3] ^= 0xFF;
+		const auto broken = Patches::Locate(a_image);
+		Check(broken.sites.empty() && broken.directs.empty() && broken.inplaces.empty() && broken.errors.size() == 1,
+			"H: a corrupted capacity block cancels every patch");
+		block[3] ^= 0xFF;
+
+		::VirtualFree(scratch, 0, MEM_RELEASE);
+	}
 }
 
 int wmain(int a_argc, wchar_t* a_argv[])
@@ -290,8 +424,9 @@ int wmain(int a_argc, wchar_t* a_argv[])
 	for (const auto& error : plan.errors) {
 		std::printf("  %s\n", error.c_str());
 	}
-	Check(plan.errors.empty() && plan.sites.size() == 6, "all six sites are located");
-	if (plan.sites.size() != 6) {
+	Check(plan.errors.empty() && plan.sites.size() == 6 && plan.inplaces.size() == 1,
+		"all six sites and the BuffFX capacity block are located");
+	if (plan.sites.size() != 6 || plan.inplaces.size() != 1) {
 		std::printf("%d failure(s)\n", g_failures);
 		return 1;
 	}
@@ -301,6 +436,8 @@ int wmain(int a_argc, wchar_t* a_argv[])
 	} else {
 		TestWidgetString(plan.directs.front(), image);
 	}
+
+	TestBuffFXCap(plan.inplaces.front(), image, mapping);
 
 	std::puts("fragments:");
 	std::uint8_t* buffFX = nullptr;
@@ -328,8 +465,15 @@ int wmain(int a_argc, wchar_t* a_argv[])
 	Check(image.ExternalPatchSection() == ".dxfs", "patched executable is detected");
 	std::memcpy(sectionName, savedName, sizeof(savedName));
 
+	// 按 key 取定位结果，不依赖 Fixes 数组的顺序
+	const auto findSite = [&](char a_key) -> const Patches::Site& {
+		const auto it = std::find_if(plan.sites.begin(), plan.sites.end(),
+			[&](const Patches::Site& a_site) { return a_site.key == a_key; });
+		return *it;
+	};
+
 	// 只要一处对不上就整体放弃
-	const auto& teleport = plan.sites[3];
+	const auto& teleport = findSite('D');
 	mapping.base[teleport.hook] ^= 0xFF;
 	const auto broken = Patches::Locate(image);
 	Check(broken.sites.empty() && broken.directs.empty() && broken.errors.size() == 1, "one mismatching site cancels every patch");
@@ -338,9 +482,9 @@ int wmain(int a_argc, wchar_t* a_argv[])
 	const auto limit = *reinterpret_cast<const std::uint64_t*>(buffFX + 7);
 	Check(limit == 0x00007FFFFFFFFFFF, "BuffFX guard uses the user address limit");
 
-	TestBuffFX(plan.sites[4], image, mapping, buffFX);
+	TestBuffFX(findSite('E'), image, mapping, buffFX);
 
-	TestSkillBitmap(plan.sites[5], image, mapping, skillBitmap);
+	TestSkillBitmap(findSite('F'), image, mapping, skillBitmap);
 
 	std::printf("%d failure(s)\n", g_failures);
 	return g_failures == 0 ? 0 : 1;

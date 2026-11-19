@@ -10,6 +10,9 @@ namespace Patches
 {
 	inline constexpr std::size_t FragmentSize = 0x30;
 
+	// BuffFX 的 vector 首次扩容容量下限（元素个数）。256 * 0x18 = 6144 B = 0x1800
+	inline constexpr std::uint32_t BuffFXMinCapacity = 256;
+
 	// 按内存布局映射好的 PE 映像，所有位置都用 RVA 表示
 	class Image
 	{
@@ -73,11 +76,23 @@ namespace Patches
 		std::uint32_t bufferSize{ 0 };      // 新缓冲区大小（同时作为新的容量上限）
 	};
 
+	// 等长原位改写（不依赖 trampoline）：把游戏函数内部定长字节块整块换成等价逻辑。
+	// 只用于片段完全自包含（不含相对寻址、不需要重定位）的场合，覆盖长度必须与片段长度一致。
+	struct InPlacePatch
+	{
+		char          key{ 0 };
+		const char*   name{ "" };
+		std::uint32_t function{ 0 };  // 所在函数入口，仅供日志与排障
+		std::uint32_t hook{ 0 };      // 被替换字节块的起点
+		std::uint32_t cover{ 0 };     // 被替换的字节数，与生成的片段等长
+	};
+
 	struct Plan
 	{
-		std::vector<Site>        sites;    // 有任何一处失败时为空
-		std::vector<DirectPatch> directs;  // 直接修补点，同样遵循全有或全无
-		std::vector<std::string> errors;   // 每个失败点一条
+		std::vector<Site>          sites;    // 有任何一处失败时为空
+		std::vector<DirectPatch>   directs;  // 直接修补点，同样遵循全有或全无
+		std::vector<InPlacePatch>  inplaces; // 等长原位改写点，同样遵循全有或全无
+		std::vector<std::string>   errors;   // 每个失败点一条
 	};
 
 	[[nodiscard]] Plan Locate(const Image& a_image);
@@ -91,4 +106,10 @@ namespace Patches
 	// 把直接修补点落到已经映射好的映像上（a_base 是映像基址，a_newBuffer 是新的堆缓冲区）。
 	// 调用方负责刷新指令缓存并释放资源；新缓冲区必须在进程生命周期内保持有效。
 	void ApplyDirect(const DirectPatch& a_patch, std::uintptr_t a_base, void* a_newBuffer);
+
+	// 在原位改写点生成片段字节（a_memory 至少 a_patch.cover 字节），返回片段长度
+	std::size_t EmitInPlace(const InPlacePatch& a_patch, void* a_memory);
+
+	// 把原位改写落到已经映射好的映像上；调用方负责保证没有线程正在执行该段代码
+	void ApplyInPlace(const InPlacePatch& a_patch, std::uintptr_t a_base);
 }
