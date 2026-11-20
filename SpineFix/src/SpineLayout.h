@@ -79,6 +79,19 @@ namespace SpineFix::spine
 	static_assert(offsetof(Skeleton, drawOrder) == 0x30);
 	static_assert(offsetof(Skeleton, a) == 0x5C);
 
+	struct Animation;
+
+	// spSkeletonData 里和动画表有关的字段；动画表由 84FA70 按名字查找动画
+	struct SkeletonData
+	{
+		std::byte   head[0x60];
+		std::int32_t animationsCount;  // +0x60
+		std::int32_t padding;          // +0x64
+		Animation**  animations;       // +0x68，元素是 0x18 字节的 spAnimation*
+	};
+	static_assert(offsetof(SkeletonData, animationsCount) == 0x60);
+	static_assert(offsetof(SkeletonData, animations) == 0x68);
+
 	struct Animation
 	{
 		const char*   name;            // +0x00

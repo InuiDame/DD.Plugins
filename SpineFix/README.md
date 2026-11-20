@@ -49,12 +49,14 @@ python tools/set_blend.py --all 2 hero.sprite.combat.skel --write
 | `additive` | `1` | 字节为 1 时是否按加法画。原版有些特效切片带 1，觉得变亮了就设 0 |
 | `max_passes` | `8` | 一个 sprite 最多拆几段；超出的并进最后一段（层级仍按 drawOrder） |
 | `verbose` | `0` | 每次修补都写日志 |
-| `probe` | `0` | 每种骨骼资源第一次绘制时打一份自检：槽位数、混合字节分布、当前动画的时间线类型 |
+| `probe` | `0` | 每种骨骼资源第一次绘制时打一份自检：槽位数、混合字节分布、当前动画与**整份骨骼所有动画**的时间线统计 |
 
-自检那行长这样，用来确认资源有没有被读进来：
+自检那行长这样，用来确认资源有没有被读进来。竖线后面是**扫描全部动画**的结果：
+`all:` 下面是动画总数、attachment / drawOrder 时间线总数；有 drawOrder 的动画会把名字和条数列出来，
+不需要正好播到那一段就能判断资源里有没有层级关键帧。
 
 ```
-probe: slots=23 blend normal/add/mul/screen/other=23/0/0/0/0 animation="show" timelines=45 attachment=0 drawOrder=0 color=21
+probe: slots=23 blend normal/add/mul/screen/other=23/0/0/0/0 animation="show" timelines=45 attachment=0 drawOrder=0 color=21 | all: anims=2 attachment=0 drawOrder=0
 ```
 
 ## 日志
@@ -71,8 +73,14 @@ multi-pass draw: 3 pass(es)
 - [运行] 特征码在基准 exe 上命中 `2585E0` / `853330` / `8559A0`，RVA 校验一致；测试目录（`rig.py` 的 scenario4）跑 100 秒不崩，日志停在 hook 安装和一条 probe。
 - [运行] `tools/set_blend.py` 对游戏目录 + 创意工坊 9518 个 `.skel` 全部解析成功（2.1.27 / 2.1.08 / 抹掉版本号三种都有）。
 - [运行] `spinefix_test` 60 项离线检查通过：帧查找边界、显示/隐藏、排列与尾部补齐、多轨道、分段与段数上限。
-- 未验证：带混合字节 2/3 的资源实机画面；attachment / drawOrder 修补的真实命中（原版内容里没遇到这两类关键帧，
-  需要装一个用了它们的 mod，把 `probe` 和 `verbose` 打开看日志）。
+- [运行] 2026-11-20 测试员实机反馈：**图层混合效果（加法 / 正片叠底）已经能正确使用**，对应 Eos 角色资源里
+  `Body_Skirt1_Shadow` 这类切片。同时确认：**带图层顺序关键帧的资源原本会崩溃，装上插件后不再崩溃**。
+- 未通过：图层顺序关键帧的画面仍未达到 Spine 编辑器里的效果。当次 `SpineFix.log` 里一条 `repaired …` 都没有，
+  说明绘制前的 attachment / drawOrder 修补没有命中，问题在「时间线有没有进入动画对象」这一层，不在补得对不对。
+  测试员认为这项不重要，暂不深挖。2026-11-20 第二份 probe 日志里 15 份骨骼的 `drawOrder` 全为 0，
+  其中一份 `idle` 有 14 条 attachment 时间线但同样没有修补命中，且这批资源的混合字节全是 0——
+  说明那次运行没有渲染到出问题的那份资源。已把 probe 扩成扫描整份骨骼的所有动画（新增 `all:` 段），
+  下次带 `probe=1` / `verbose=1` 复现即可区分「资源里没有 drawOrder 时间线」和「有但没生效」。
 
 ## 限制
 

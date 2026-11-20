@@ -111,10 +111,53 @@ namespace Hooks
 				}
 			}
 
+			// 当前动画可能不是出问题的那个，所以顺手扫一遍整份骨骼的所有动画：
+			// 只要文件里存在 drawOrder 时间线，这里就能看到，不需要正好播到那一段。
+			int         allAnimations = 0;
+			int         allAttachments = 0;
+			int         allDrawOrders = 0;
+			std::string drawOrderNames;
+			const auto* data = static_cast<const spine::SkeletonData*>(skeleton.data);
+			if (data && data->animationsCount > 0 && data->animationsCount <= 4096 && data->animations) {
+				allAnimations = data->animationsCount;
+				for (std::int32_t i = 0; i < data->animationsCount; ++i) {
+					const auto* current = data->animations[i];
+					if (!current || !current->timelines || current->timelinesCount <= 0 ||
+						current->timelinesCount > 0x10000) {
+						continue;
+					}
+					int attachment = 0;
+					int drawOrder = 0;
+					for (std::int32_t j = 0; j < current->timelinesCount; ++j) {
+						const auto* timeline = static_cast<const spine::Timeline*>(current->timelines[j]);
+						if (!timeline) {
+							continue;
+						}
+						if (timeline->type == spine::TimelineTypeAttachment) {
+							++attachment;
+						} else if (timeline->type == spine::TimelineTypeDrawOrder) {
+							++drawOrder;
+						}
+					}
+					allAttachments += attachment;
+					allDrawOrders += drawOrder;
+
+					if (drawOrder > 0 && drawOrderNames.size() < 160) {
+						if (!drawOrderNames.empty()) {
+							drawOrderNames += ',';
+						}
+						const char* name = current->name ? current->name : "?";
+						drawOrderNames.append(name, std::min<std::size_t>(std::strlen(name), 40));
+						drawOrderNames += '(' + std::to_string(drawOrder) + ')';
+					}
+				}
+			}
+
 			INFO("probe: slots={} blend normal/add/mul/screen/other={}/{}/{}/{}/{} animation=\"{}\" timelines={} "
-				 "attachment={} drawOrder={} color={}",
+				 "attachment={} drawOrder={} color={} | all: anims={} attachment={} drawOrder={}{}{}",
 				skeleton.slotsCount, normal, additive, multiply, screen, unknown, animation, timelines, attachments,
-				drawOrders, colors);
+				drawOrders, colors, allAnimations, allAttachments, allDrawOrders,
+				drawOrderNames.empty() ? "" : " names=", drawOrderNames);
 		}
 
 		// 记录 slot 附件与 drawOrder，供「只记录不修补」模式回滚
