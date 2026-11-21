@@ -12,6 +12,7 @@
 | `FmodCrashFix` | `FmodCrashFix` | 修复返回主菜单时 FMOD 异步线程空指针导致的闪退 | [FmodCrashFix/README.md](FmodCrashFix/README.md) |
 | `DarkestCrashFix` | `DarkestCrashFix` | 修复主程序的 4 类闪退（贡献者：局师傅） | [DarkestCrashFix/README.md](DarkestCrashFix/README.md) |
 | `SpineFix` | `SpineFix` | 修 spine 2.1 的切片显示/隐藏关键帧、层级关键帧，以及切片的加法 / 正片叠底 / 滤色混合（预制功能） | [SpineFix/README.md](SpineFix/README.md) |
+| `HeroLevelCap` | `hero_level_cap` | 在英雄职业 `*.info.darkest` 里用 `level_cap: .max N` 按职业设置等级上限（缺省 6） | [HeroLevelCap/README.md](HeroLevelCap/README.md) |
 | `ScrollWheel` | `scroll_wheel` | 给无原生滚轮的界面补滚轮（**v10：纯滚动 + 无外溢裁剪，不画任何 UI**；事件泵 cave + 独立 tick 线程 + 布局数据补丁 + 连续平滑滚动；`r8` 面板 gate + `param_5` 行号只裁滚出网格上沿的格子；自绘滚动条已移除，饰品库用原生条；v10 已实机验收通过；**v11.2**：修 ASLR 判据（cave 改用运行时 vtable）与补给预翻页（`gate_wheel_by_panel` 面板门控）；独立 `guild_scroll` 开关、默认关闭；20:15 实机验收补给门控 / v10 回归 / 工会滚轮全部通过，见 ScrollWheel/README.md §8.4 与 p31） | [ScrollWheel/README.md](ScrollWheel/README.md) |
 
 ## 目录结构

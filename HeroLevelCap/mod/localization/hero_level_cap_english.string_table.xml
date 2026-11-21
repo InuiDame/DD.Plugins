@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+
+<language id="english">
+
+    <entry id="str_resolve_7"><![CDATA[Legend]]></entry>
+    <entry id="str_resolve_8"><![CDATA[Mythic]]></entry>
+    <entry id="str_resolve_9"><![CDATA[Immortal]]></entry>
+    <entry id="str_resolve_10"><![CDATA[Transcendent]]></entry>
+    <entry id="str_resolve_11"><![CDATA[Apocalypse]]></entry>
+    <entry id="str_resolve_12"><![CDATA[Sovereign]]></entry>
+    <entry id="str_resolve_13"><![CDATA[Supreme]]></entry>
+    <entry id="str_resolve_14"><![CDATA[Eternal]]></entry>
+    <entry id="str_resolve_15"><![CDATA[Void]]></entry>
+    <entry id="str_resolve_16"><![CDATA[Finality]]></entry>
+    <entry id="str_resolve_17"><![CDATA[Divine]]></entry>
+    <entry id="str_resolve_18"><![CDATA[Ascendant]]></entry>
+    <entry id="str_resolve_19"><![CDATA[Annihilation]]></entry>
+    <entry id="str_resolve_20"><![CDATA[Nirvana]]></entry>
+    <entry id="str_resolve_21"><![CDATA[Primordial]]></entry>
+    <entry id="str_resolve_22"><![CDATA[Chaos]]></entry>
+    <entry id="str_resolve_23"><![CDATA[Unity]]></entry>
+    <entry id="str_resolve_24"><![CDATA[Dao]]></entry>
+    <entry id="str_resolve_25"><![CDATA[Beyond]]></entry>
+    <entry id="str_resolve_26"><![CDATA[Ultimate]]></entry>
+
+</language>
+
+</root>

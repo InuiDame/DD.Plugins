@@ -1,0 +1,13 @@
+// 示例：把某个英雄职业的 resolve level 上限改成 10。
+// 放到你的数据 MOD 里对应职业的文件中，例如：
+//   <你的MOD>/heroes/crusader/crusader.info.darkest
+//
+// 这是游戏可识别的合法块（标识符 + 冒号），游戏自身不认识 level_cap 会忽略，
+// 不会影响后面的 resistances / combat_skill 等块；DLL 读取原始文本。
+// 不写这一行时该职业上限为原版 6。
+
+level_cap: .max 10
+
+resistances: .stun 40% .poison 30% .bleed 30% .disease 30% .move 40% .debuff 30% .death_blow 100% .trap 10%
+
+combat_skill: .id "smite" .level 0 .type "melee" .atk 85% .dmg 0% .crit 0% .launch 21 .target 12 .is_crit_valid True

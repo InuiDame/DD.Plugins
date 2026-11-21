@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	<PreviewIconFile></PreviewIconFile>
+	<ItemDescriptionShort>Per-class hero resolve level cap via level_cap: in hero info files.</ItemDescriptionShort>
+	<ModDataPath></ModDataPath>
+	<Title>Hero Level Cap</Title>
+	<Language>english</Language>
+	<UpdateDetails></UpdateDetails>
+	<Visibility>private</Visibility>
+	<UploadMode>direct_upload</UploadMode>
+	<VersionMajor>1</VersionMajor>
+	<VersionMinor>0</VersionMinor>
+	<TargetBuild>0</TargetBuild>
+	<Tags>
+		<Tags>DLL Mod</Tags>
+	</Tags>
+	<ItemDescription></ItemDescription>
+	<PublishedFileId>0</PublishedFileId>
+</project>
