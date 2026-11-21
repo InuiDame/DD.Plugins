@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HeroLevelCap: resolve level titles for levels above the vanilla 6.
+  原版只有 str_resolve_0..6，这里补 7..10。文件名刻意与本体文件不同
+  （miscellaneous.string_table.xml / heroes.string_table.xml 等），避免覆盖原版表格。
+  玩家如需更高等级，按同样格式继续追加即可。
+-->
+<root>
+  <language id="english">
+    <entry id="str_resolve_7"><![CDATA[Mythic]]></entry>
+    <entry id="str_resolve_8"><![CDATA[Immortal]]></entry>
+    <entry id="str_resolve_9"><![CDATA[Transcendent]]></entry>
+    <entry id="str_resolve_10"><![CDATA[Ascendant]]></entry>
+  </language>
+  <language id="schinese">
+    <entry id="str_resolve_7"><![CDATA[神话]]></entry>
+    <entry id="str_resolve_8"><![CDATA[不朽]]></entry>
+    <entry id="str_resolve_9"><![CDATA[超凡]]></entry>
+    <entry id="str_resolve_10"><![CDATA[圣临]]></entry>
+  </language>
+</root>

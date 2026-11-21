@@ -48,7 +48,25 @@ combat_skill: ...
 `<N>` 是**阿拉伯数字的等级**，例如 7 级就是 `resolve_level_bar_number_background_lvl7.png`
 与 `resolve_level_bar_number_background_glow_lvl7.png`。原版还有一张通用的
 `resolve_level_bar_number_afflicted_background.png`（77×77），它不是按等级分的，不用复制多份。
-建议直接复制 `lvl6` 的两张图改名为 `lvl7` / `lvl8` …，尺寸保持 64×64，避免布局错位。
+
+`mod/game/shared/resolve_level_bar/` 里已经带了一套 **7–10 级** 图，由
+`tools/gen_level_icons.py` 按原版规律生成：以原版 `lvl6` 为模板，只替换中心宝石的色相
+（金色外框原样保留），延续原版「橙→红→紫」之后的顺序：
+
+| 等级 | 颜色 | 宝石 HSV |
+| --- | --- | --- |
+| 7 | 紫 | hue 285 / S 1.00 / L 0.30 |
+| 8 | 青 | hue 190 / S 1.00 / L 0.30 |
+| 9 | 品红 | hue 325 / S 1.00 / L 0.30 |
+| 10 | 冷白 | hue 210 / S 0.12 / L 0.90 |
+
+要更高等级就改脚本里的 `RAMP` 再跑一次：
+
+```
+python tools/gen_level_icons.py --game "<游戏根目录>" --out mod/game/shared/resolve_level_bar --from 7 --to 12
+```
+
+glow 图沿用原版 4/5/6 级的做法（全透明 64×64），高段不需要额外高亮图。
 
 > **已处理 [静态+代码]**：`UI::CampaignAssets::Load`（RVA `7BB9B0`）加载这两组图标的循环
 > 原本是 `inc ebx; cmp ebx,7`（RVA `7BDF6C`），只会加载 `lvl0`–`lvl6`。**仅仅把 `lvl7.png`
