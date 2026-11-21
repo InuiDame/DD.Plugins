@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "Timeline.h"
 
 namespace SpineFix::timeline
@@ -167,7 +169,17 @@ namespace SpineFix::timeline
 			if (!track || !track->animation) {
 				continue;
 			}
-			const auto one = RepairAnimation(*entry->skeleton, *track->animation, track->time, a_context);
+
+			// 游戏的 spAnimation_apply（851100）在 loop 时会对 time 取 fmod，
+			// 但 track->time 本身一直累加。修补必须和它用同一个回卷后的时间，
+			// 否则第二遍开始所有时间线都会被夹到末帧，帧动画看起来只播一次。
+			auto& animation = *track->animation;
+			float time = track->time;
+			if (track->loop && animation.duration > 0.0f) {
+				time = std::fmod(time, animation.duration);
+			}
+
+			const auto one = RepairAnimation(*entry->skeleton, animation, time, a_context);
 			stats.attachments += one.attachments;
 			stats.drawOrders += one.drawOrders;
 		}

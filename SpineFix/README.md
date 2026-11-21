@@ -65,14 +65,19 @@ probe: slots=23 blend normal/add/mul/screen/other=23/0/0/0/0 animation="show" ti
 
 ```
 repaired "idle": 1 attachment, 1 drawOrder (total 12 / 12)
+drawOrder timeline active: "idle_EosIllrigger_B" (1)
 multi-pass draw: 3 pass(es)
 ```
+
+`drawOrder timeline active` 在 `verbose=1` 或 `probe=1` 时输出，每个动画最多一次：表示**当前正在渲染的动画**里真的有层级时间线。
+它和 `probe:` 里的 `all: … drawOrder=N` 配合，可以区分「资源里有但没播到」和「播到了但修补没有差异」。
 
 ## 验收状态
 
 - [运行] 特征码在基准 exe 上命中 `2585E0` / `853330` / `8559A0`，RVA 校验一致；测试目录（`rig.py` 的 scenario4）跑 100 秒不崩，日志停在 hook 安装和一条 probe。
 - [运行] `tools/set_blend.py` 对游戏目录 + 创意工坊 9518 个 `.skel` 全部解析成功（2.1.27 / 2.1.08 / 抹掉版本号三种都有）。
-- [运行] `spinefix_test` 60 项离线检查通过：帧查找边界、显示/隐藏、排列与尾部补齐、多轨道、分段与段数上限。
+- [运行] `spinefix_test` 62 项离线检查通过：帧查找边界、显示/隐藏、排列与尾部补齐、多轨道、分段与段数上限、循环动画时间回卷。
+- [修复] 2026-11-21：帧动画角色（如 HuoHuo 的 `walk`，49 条 attachment 时间线）装上插件后只播一遍就停住。原因不是原版循环失效——原版 `spAnimation_apply`（`851100`）会对 loop 轨道的 `time` 取 `fmod` 回卷——而是修补时直接用了 `track->time`，第二遍起所有帧都被夹到末帧。现在修补使用和原版一致的回卷时间，`loop=0` 的行为不变。
 - [运行] 2026-11-20 测试员实机反馈：**图层混合效果（加法 / 正片叠底）已经能正确使用**，对应 Eos 角色资源里
   `Body_Skirt1_Shadow` 这类切片。同时确认：**带图层顺序关键帧的资源原本会崩溃，装上插件后不再崩溃**。
 - 未通过：图层顺序关键帧的画面仍未达到 Spine 编辑器里的效果。当次 `SpineFix.log` 里一条 `repaired …` 都没有，

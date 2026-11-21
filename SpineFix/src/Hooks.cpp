@@ -222,6 +222,39 @@ namespace Hooks
 				a_stats.drawOrders, g_attachmentFixes, g_drawOrderFixes);
 		}
 
+		// 当前动画真的带 drawOrder 时间线时记一条（每个动画一次）。用来区分
+		// 「那份动画根本没播到」和「播到了但修补算出来没有差异」。
+		void ReportDrawOrderActive(const spine::Sprite& a_sprite)
+		{
+			if (!config::Verbose() && !config::Probe()) {
+				return;
+			}
+			static std::unordered_set<const spine::Animation*> seen;  // 只在渲染线程用
+
+			auto* entry = spine::CurrentEntry(const_cast<spine::Sprite*>(&a_sprite));
+			if (!entry || !entry->state || !entry->state->tracks || entry->state->tracksCount <= 0) {
+				return;
+			}
+			auto* track = entry->state->tracks[0];
+			if (!track || !track->animation || !seen.insert(track->animation).second) {
+				return;
+			}
+
+			const auto& animation = *track->animation;
+			int drawOrders = 0;
+			if (animation.timelines && animation.timelinesCount > 0) {
+				for (std::int32_t i = 0; i < animation.timelinesCount; ++i) {
+					const auto* timeline = static_cast<const spine::Timeline*>(animation.timelines[i]);
+					if (timeline && timeline->type == spine::TimelineTypeDrawOrder) {
+						++drawOrders;
+					}
+				}
+			}
+			if (drawOrders > 0) {
+				INFO("drawOrder timeline active: \"{}\" ({})", animation.name ? animation.name : "-", drawOrders);
+			}
+		}
+
 		// ===================== 分段绘制 =====================
 		// 原版一次 Render 只用一个混合状态把整只 sprite 画完。这里按混合模式把 drawOrder
 		// 切成连续的段，每段只保留该段的切片可见、调好混合状态后各调一次原函数，于是
@@ -358,6 +391,8 @@ namespace Hooks
 					ReportRepair(*sprite, stats);
 				}
 			}
+
+			ReportDrawOrderActive(*sprite);
 
 			if (!config::BlendModes()) {
 				RenderOriginal(a_spriteRaw, a_tint);

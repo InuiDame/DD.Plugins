@@ -269,6 +269,56 @@ namespace
 		CheckEqual(second.attachments + second.drawOrders, 0, "second pass changes nothing");
 	}
 
+	void TestLoopWrap()
+	{
+		Fixture     fixture(1);
+		auto        context = FakeContext();
+		const char* names[] = { "body", "weapon" };
+		float       frames[] = { 0.0f, 1.0f };
+
+		spine::AttachmentTimeline attachment{};
+		attachment.type = spine::TimelineTypeAttachment;
+		attachment.frameCount = 2;
+		attachment.frames = frames;
+		attachment.slotIndex = 0;
+		attachment.names = names;
+
+		void* timelines[] = { &attachment };
+		spine::Animation animation{};
+		animation.name = "walk";
+		animation.duration = 1.0f;
+		animation.timelinesCount = 1;
+		animation.timelines = timelines;
+
+		spine::TrackEntry track{};
+		track.animation = &animation;
+		track.time = 2.25f;  // 已经播过两遍
+		track.loop = 1;
+		spine::TrackEntry* tracks[] = { &track };
+		spine::AnimationState state{};
+		state.tracksCount = 1;
+		state.tracks = tracks;
+
+		spine::SpriteEntry entry{};
+		entry.skeleton = &fixture.skeleton;
+		entry.state = &state;
+
+		spine::Sprite sprite{};
+		sprite.entries = &entry;
+		sprite.entriesEnd = &entry + 1;
+
+		// 先把它放到末帧，再让回卷后的时间把它拉回第一帧
+		fixture.slots[0].attachment = &g_weapon;
+		timeline::RepairSprite(sprite, context);
+		Check(fixture.slots[0].attachment == &g_body, "looped animation keeps cycling frames");
+
+		// loop=0 时游戏把时间夹在末帧，修补也不应回卷
+		track.loop = 0;
+		fixture.slots[0].attachment = &g_body;
+		timeline::RepairSprite(sprite, context);
+		Check(fixture.slots[0].attachment == &g_weapon, "non-looped animation stays on the last frame");
+	}
+
 	void SetBlend(Fixture& a_fixture, int a_index, std::uint32_t a_blend)
 	{
 		a_fixture.slotData[static_cast<std::size_t>(a_index)].blend = a_blend;
@@ -337,6 +387,7 @@ int main()
 	TestAttachment();
 	TestDrawOrder();
 	TestRepairSprite();
+	TestLoopWrap();
 	TestBuildRuns();
 
 	std::printf("%d checks, %d failure(s)\n", g_checks, g_failures);
